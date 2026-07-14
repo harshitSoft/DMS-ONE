@@ -30,6 +30,12 @@ const columns = {
     passwordChangedAt: { type: DataTypes.DATE, allowNull: true }
   },
   Companies: {
+    phone: { type: DataTypes.STRING, allowNull: true },
+    address: { type: DataTypes.TEXT, allowNull: true },
+    city: { type: DataTypes.STRING, allowNull: true },
+    state: { type: DataTypes.STRING, allowNull: true },
+    pincode: { type: DataTypes.STRING, allowNull: true },
+    adminPhone: { type: DataTypes.STRING, allowNull: true },
     paymentStatus: { type: DataTypes.ENUM("PENDING", "PAID", "REJECTED"), allowNull: false, defaultValue: "PAID" },
     subscriptionAmount: { type: DataTypes.DECIMAL(12, 2), allowNull: false, defaultValue: 0 },
     approvedByFinance: { type: DataTypes.INTEGER, allowNull: true },
@@ -46,6 +52,8 @@ const columns = {
   Products: {
     image: { type: DataTypes.STRING },
     description: { type: DataTypes.TEXT },
+    manufacturingDate: { type: DataTypes.DATEONLY, allowNull: true },
+    expiryDate: { type: DataTypes.DATEONLY, allowNull: true },
     creditCoins: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
     variantEnabled: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: true }
   },
@@ -130,9 +138,13 @@ async function migrateMissingColumns() {
   const companyTable = await queryInterface.describeTable("Companies").catch(() => null);
   if (companyTable?.status) {
     await queryInterface.changeColumn("Companies", "status", {
-      type: DataTypes.ENUM("active", "expired", "blocked", "pending", "rejected"),
+      type: DataTypes.ENUM("active", "inactive", "deleted", "expired", "blocked", "pending", "rejected"),
       allowNull: true,
       defaultValue: "active"
+    }).catch(() => null);
+    await queryInterface.changeColumn("Companies", "endDate", {
+      type: DataTypes.DATEONLY,
+      allowNull: true
     }).catch(() => null);
   }
   for (const [table, tableColumns] of Object.entries(columns)) {
@@ -161,10 +173,10 @@ async function migrateMissingColumns() {
       });
     }
   }
-  await seedLicenseDefaults();
+  if (process.env.ENABLE_LICENSE_SYSTEM === "true") await seedLicenseDefaults();
   await migrateMainSuperAdmin();
   await migrateCompanyAdmins();
-  await ensureDefaultCompanyLicenses();
+  if (process.env.ENABLE_LICENSE_SYSTEM === "true") await ensureDefaultCompanyLicenses();
 }
 
 async function seedLicenseDefaults() {
@@ -183,12 +195,16 @@ async function seedLicenseDefaults() {
 
 async function migrateMainSuperAdmin() {
   await User.update(
-    { role: "SUPER_ADMIN_CEO", status: "active", name: "Harshit Nigam" },
+    { role: "SUPER_ADMIN", status: "active" },
     { where: { email: "harshit.nigam@itsoftlab.com" } }
   );
   await User.update(
-    { role: "SUPER_ADMIN_CEO" },
-    { where: { role: "SUPER_ADMIN" } }
+    { role: "SUPER_ADMIN" },
+    { where: { role: "SUPER_ADMIN_CEO" } }
+  );
+  await User.update(
+    { status: "inactive" },
+    { where: { role: ["SUPER_ADMIN_SALES_MANAGER", "SUPER_ADMIN_IT_MANAGER", "SUPER_ADMIN_FINANCE_MANAGER"] } }
   );
 }
 

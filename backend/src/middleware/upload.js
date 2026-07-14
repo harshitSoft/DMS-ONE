@@ -13,7 +13,7 @@ function storage(folder) {
   return multer.diskStorage({
     destination: (req, file, cb) => cb(null, path.join(uploadRoot, folder)),
     filename: (req, file, cb) => {
-      const ext = path.extname(file.originalname);
+      const ext = path.extname(file.originalname).toLowerCase();
       const safeBase = path.basename(file.originalname, ext).replace(/[^a-z0-9-]/gi, "-").toLowerCase();
       cb(null, `${Date.now()}-${safeBase}${ext}`);
     }
@@ -24,8 +24,8 @@ const productImageUpload = multer({
   storage: storage("products"),
   limits: { fileSize: 5 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
-    if (["image/jpeg", "image/png", "image/webp"].includes(file.mimetype)) return cb(null, true);
-    const error = new Error("Only JPG, PNG and WEBP images are allowed for product image.");
+    if (file.mimetype?.startsWith("image/")) return cb(null, true);
+    const error = new Error("Only image files are allowed for product image.");
     error.status = 400;
     return cb(error);
   }
@@ -43,7 +43,7 @@ const creditRewardUpload = multer({
 });
 
 function publicPath(folder, file) {
-  return file ? `/uploads/${folder}/${file.filename}` : null;
+  return file ? `/uploads/${folder}/${file.filename}`.replace(/\\/g, "/") : null;
 }
 
 module.exports = { productImageUpload, invoiceUpload, creditRewardUpload, publicPath };

@@ -9,8 +9,9 @@ export const API_ORIGIN = (import.meta.env.VITE_API_URL || "http://localhost:500
 
 export const fileUrl = (path) => {
   if (!path) return "";
-  if (path.startsWith("http")) return path;
-  return `${API_ORIGIN}${path}`;
+  const normalized = String(path).replaceAll("\\", "/");
+  if (normalized.startsWith("http")) return normalized;
+  return `${API_ORIGIN}${normalized.startsWith("/") ? normalized : `/${normalized}`}`;
 };
 
 api.interceptors.request.use((config) => {

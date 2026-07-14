@@ -305,7 +305,7 @@ exports.createSale = asyncHandler(async (req, res) => {
         message,
         type: "LOW_STOCK",
         priority: stockAfter === 0 ? "CRITICAL" : "HIGH",
-        metadata: { productId, saleId: created.id, stockAfter, lowStockLimit: limit }
+        metadata: { productId, productName, saleId: created.id, stockAfter, lowStockLimit: limit }
       };
       if (existing) await existing.update(payload, { transaction });
       else await InternalNotification.create(payload, { transaction });

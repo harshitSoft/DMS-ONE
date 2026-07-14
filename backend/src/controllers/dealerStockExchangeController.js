@@ -133,6 +133,7 @@ exports.search = asyncHandler(async (req, res) => {
       productVariantId: item.productVariantId,
       variantName: item.variantName || item.ProductVariant?.variantName,
       colorName: item.colorName || item.ProductVariant?.colorName,
+      skuSuffix: item.ProductVariant?.skuSuffix,
       availableQuantity: Number(item.quantity || 0),
       lowStockLimit: Number(item.lowStockLimit || 0)
     }))

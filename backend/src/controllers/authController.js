@@ -4,7 +4,8 @@ const asyncHandler = require("../utils/asyncHandler");
 const { signToken } = require("../utils/token");
 const { User, Company, Dealer } = require("../models");
 const { sendLoginOtpEmail, sendForgotPasswordOtpEmail } = require("../utils/mailService");
-const { dealerManagerRolesEnabled, normalizeRole, subscriptionBlockedMessage, accountSuspendedMessage } = require("../middleware/auth");
+const { dealerManagerRolesEnabled, normalizeRole, subscriptionBlockedMessage, accountSuspendedMessage, retiredSuperAdminRoleMessage, retiredSuperAdminRoles } = require("../middleware/auth");
+const { superAdminManagerRolesEnabled } = require("../utils/featureFlags");
 
 function publicUser(user) {
   return {
@@ -64,11 +65,14 @@ exports.login = asyncHandler(async (req, res) => {
   if (!user || !passwordMatches) {
     return res.status(401).json({ message: "Invalid email or password" });
   }
+  if (!superAdminManagerRolesEnabled() && retiredSuperAdminRoles.includes(user.role)) {
+    return res.status(403).json({ message: retiredSuperAdminRoleMessage });
+  }
   if (user.companyId) {
     const company = await Company.findByPk(user.companyId);
     const today = new Date().toISOString().slice(0, 10);
     const expired = company?.endDate && String(company.endDate) < today;
-    if (!company || ["blocked", "expired", "pending", "rejected"].includes(company.status) || expired) {
+    if (!company || ["inactive", "deleted", "blocked", "expired", "pending", "rejected"].includes(company.status) || expired) {
       return res.status(403).json({ message: subscriptionBlockedMessage });
     }
   }
@@ -171,7 +175,7 @@ exports.verifyForgotPasswordOtp = asyncHandler(async (req, res) => {
     const company = await Company.findByPk(user.companyId);
     const today = new Date().toISOString().slice(0, 10);
     const expired = company?.endDate && String(company.endDate) < today;
-    if (!company || ["blocked", "expired", "pending", "rejected"].includes(company.status) || expired) {
+    if (!company || ["inactive", "deleted", "blocked", "expired", "pending", "rejected"].includes(company.status) || expired) {
       return res.status(403).json({ message: subscriptionBlockedMessage });
     }
   }

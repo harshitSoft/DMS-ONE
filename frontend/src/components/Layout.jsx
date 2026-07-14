@@ -13,7 +13,6 @@ import {
   Megaphone,
   Package,
   Star,
-  Search,
   ShieldCheck,
   Truck,
   UserRound,
@@ -91,10 +90,6 @@ export default function Layout({ title, subtitle, tabs, activeTab, onTab, childr
               </div>
             </div>
             <div className="flex items-center gap-2">
-              <div className="hidden w-72 items-center gap-2 rounded-xl border border-slate-200 bg-white/80 px-3 py-2.5 text-sm text-slate-400 shadow-sm xl:flex">
-                <Search size={16} />
-                <span>Search workspace</span>
-              </div>
               <button onClick={() => tabs.some((tab) => tab.id === "internalUpdates") && selectTab("internalUpdates")} className="relative grid h-10 w-10 place-items-center rounded-xl border border-slate-200 bg-white text-slate-600 shadow-sm transition hover:-translate-y-0.5 hover:bg-slate-50 hover:shadow-md" title="Notifications">
                 <Bell size={18} />
                 {unreadUpdates > 0 && <span className="absolute -right-1 -top-1 grid min-h-5 min-w-5 place-items-center rounded-full bg-rose-600 px-1 text-[11px] font-bold text-white">{unreadUpdates}</span>}
@@ -160,10 +155,6 @@ function SidebarContent({ tabs, activeTab, onTab }) {
           <UserRound size={18} />
           <span>Profile</span>
         </button>
-        <div className="rounded-xl border border-white/10 bg-gradient-to-br from-white/10 to-white/[0.03] p-4 shadow-inner">
-          <p className="flex items-center gap-2 text-sm font-semibold"><span className="h-2 w-2 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)]" /> Production workspace</p>
-          <p className="mt-1 text-xs leading-5 text-slate-400">Analytics, stock, orders and finance in one clean control center.</p>
-        </div>
       </div>
     </div>
   );

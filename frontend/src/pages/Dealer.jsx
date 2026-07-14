@@ -6,6 +6,18 @@ import { api, fileUrl } from "../api/client";
 import { Button, Card, ChartCard, ConfirmModal, DeliveryTimeline, Empty, FormGrid, formatDate, formatMoney, Loading, PageHeader, Section, StatusBadge as UIStatusBadge, TextField } from "../components/UI";
 import { consumeProfileTargetTab, roleTabs } from "../utils/profileNavigation";
 import { useAuth } from "../state/AuthContext";
+import ImageWithFallback from "../components/ImageWithFallback";
+
+const fullSku = (product, variant) => [product?.sku, variant?.skuSuffix].filter(Boolean).join("-") || product?.sku || "-";
+const rowVariant = (row) => row?.ProductVariant || row?.variant || row;
+const productSkuText = (product, variant) => `SKU: ${fullSku(product, variant)}`;
+const productNameWithSku = (product, variant) => `${product?.productName || "Product"} (${fullSku(product, variant)})`;
+const itemLabelWithSku = (item) => {
+  const product = item?.Product || item?.product || {};
+  const variant = rowVariant(item);
+  const variantText = item?.variantName || variant?.variantName ? ` - ${item?.variantName || variant?.variantName}${item?.colorName || variant?.colorName ? `/${item?.colorName || variant?.colorName}` : ""}` : "";
+  return `${product.productName || "Product"}${variantText} [${fullSku(product, variant)}]`;
+};
 
 const tabs = [
   { id: "dashboard", label: "Dashboard", icon: "dashboard" },
@@ -271,7 +283,7 @@ function DealerDashboard() {
   const creditRedemptions = Array.isArray(data.credit_redemptions) ? data.credit_redemptions : [];
   const creditTransactions = Array.isArray(data.credit_transactions) ? data.credit_transactions : [];
   const orderStatusChart = Object.entries(orders.reduce((acc, order) => ({ ...acc, [order.status]: (acc[order.status] || 0) + 1 }), {})).map(([status, count]) => ({ status: status.replaceAll("_", " "), count }));
-  const stockChart = inventory.map((item) => ({ product: item.Product?.productName || "Product", quantity: item.quantity }));
+  const stockChart = inventory.map((item) => ({ product: productNameWithSku(item.Product, rowVariant(item)), quantity: item.quantity }));
   const paymentChart = Object.entries(finance.reduce((acc, payment) => ({ ...acc, [payment.paymentStatus]: (acc[payment.paymentStatus] || 0) + 1 }), {})).map(([status, count]) => ({ status, count }));
 
   const guarded = (id, node) => visibleTabIds.includes(id) ? node : <AccessDenied />;
@@ -290,7 +302,7 @@ function DealerDashboard() {
       {activeTab === "stock" && (
         guarded("stock", <Section title="Company available stock" actions={ceoReadOnly ? <span className="rounded-md bg-slate-100 px-3 py-2 text-sm font-semibold text-slate-600">Managed by assigned manager</span> : <Button onClick={placeOrder}>Place Order</Button>}>
           {orderWarning && <div className="mb-4 rounded-md border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700 animate-pulse">{orderWarning}</div>}
-          {stock.length ? <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{stock.map((stock) => <StockCard key={stock.id} stock={stock} quantity={orderItems[stock.productId] || ""} selection={stockSelections[stock.productId]} setSelection={(value) => setStockSelections({ ...stockSelections, [stock.productId]: value })} setQuantity={(value) => setOrderItems({ ...orderItems, [stock.productId]: value })} requestMore={() => setStockRequest({ productId: stock.productId, requestedQuantity: Number(orderItems[stock.productId] || 0), availableStock: stock.quantity, message: `I want more quantity of ${stock.Product?.productName}. Available stock is ${stock.quantity}, but I need ${Number(orderItems[stock.productId] || 0)}. Please increase product stock.` })} />)}</div> : <Empty />}
+          {stock.length ? <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{stock.map((stock) => <StockCard key={stock.id} stock={stock} quantity={orderItems[stock.productId] || ""} selection={stockSelections[stock.productId]} setSelection={(value) => setStockSelections({ ...stockSelections, [stock.productId]: value })} setQuantity={(value) => setOrderItems({ ...orderItems, [stock.productId]: value })} requestMore={() => setStockRequest({ productId: stock.productId, requestedQuantity: Number(orderItems[stock.productId] || 0), availableStock: stock.quantity, message: `I want more quantity of ${productNameWithSku(stock.Product)}. Available stock is ${stock.quantity}, but I need ${Number(orderItems[stock.productId] || 0)}. Please increase product stock.` })} />)}</div> : <Empty />}
         </Section>)
       )}
       {stockRequest && <StockRequestModal request={stockRequest} setRequest={setStockRequest} onSubmit={sendStockRequest} />}
@@ -403,7 +415,7 @@ function DealerStockExchange({ reloadDealer }) {
           <div className="grid gap-4 lg:grid-cols-[260px_1fr]">
             <div className="rounded-md border border-slate-200 p-4">
               {result.product.image && <img src={fileUrl(result.product.image)} alt={result.product.productName} className="mb-3 h-36 w-full rounded-md object-cover" />}
-              <p className="text-lg font-semibold text-slate-950">{result.product.productName}</p>
+              <p className="text-lg font-semibold text-slate-950">{productNameWithSku(result.product)}</p>
               <p className="text-sm text-slate-500">SKU: {result.product.sku}</p>
               <div className="mt-3"><UIStatusBadge value={result.product.isCompanyOutOfStock ? "Company Out of Stock" : `Company Stock ${result.product.companyStock}`} /></div>
               <p className="mt-3 text-sm text-slate-600">{result.product.description || "No description available."}</p>
@@ -412,15 +424,16 @@ function DealerStockExchange({ reloadDealer }) {
               <h3 className="mb-3 text-sm font-bold uppercase tracking-wide text-slate-500">Available dealers</h3>
               {result.availableDealers?.length ? <div className="overflow-x-auto rounded-md border border-slate-200">
                 <table className="w-full min-w-[860px] text-left text-sm">
-                  <thead className="bg-slate-50 text-xs font-bold uppercase text-slate-500"><tr>{["Dealer", "Location", "Variant", "Color", "Available", "Action"].map((h) => <th key={h} className="px-4 py-3">{h}</th>)}</tr></thead>
+                  <thead className="bg-slate-50 text-xs font-bold uppercase text-slate-500"><tr>{["Dealer", "Location", "Variant", "Color", "SKU", "Available", "Action"].map((h) => <th key={h} className="px-4 py-3">{h}</th>)}</tr></thead>
                   <tbody className="divide-y divide-slate-100">
                     {result.availableDealers.map((dealer) => <tr key={`${dealer.dealerId}-${dealer.productVariantId || "std"}`}>
                       <td className="px-4 py-3"><p className="font-semibold text-slate-900">{dealer.dealerName}</p><p className="text-xs text-slate-500">{dealer.ownerName}</p></td>
                       <td className="px-4 py-3">{[dealer.area, dealer.city, dealer.pincode].filter(Boolean).join(", ") || dealer.address || "-"}</td>
                       <td className="px-4 py-3">{dealer.variantName || "-"}</td>
                       <td className="px-4 py-3">{dealer.colorName || "-"}</td>
+                      <td className="px-4 py-3 font-mono text-xs">{fullSku(result.product, dealer)}</td>
                       <td className="px-4 py-3 font-semibold text-slate-950">{dealer.availableQuantity}</td>
-                      <td className="px-4 py-3"><Button className="min-h-9 px-3 py-1.5 text-xs" onClick={() => { setRequestTarget(dealer); setQuantity(""); setReason(""); }}>Request</Button></td>
+                      <td className="px-4 py-3"><Button className="min-h-9 px-3 py-1.5 text-xs" onClick={() => { setRequestTarget({ ...dealer, sku: fullSku(result.product, dealer) }); setQuantity(""); setReason(""); }}>Request</Button></td>
                     </tr>)}
                   </tbody>
                 </table>
@@ -448,11 +461,11 @@ function DealerStockExchange({ reloadDealer }) {
 
 function TransferRows({ rows = [], mode, onCancel, onReminder }) {
   if (!rows.length) return <Empty text="No transfer requests found" />;
-  return <div className="overflow-x-auto rounded-md border border-slate-200"><table className="w-full min-w-[900px] text-left text-sm"><thead className="bg-slate-50 text-xs font-bold uppercase text-slate-500"><tr>{["Product", "Quantity", mode === "sent" ? "Sender dealer" : "Requester dealer", "Status", "Approvals", "Dates", "Action"].map((h) => <th key={h} className="px-4 py-3">{h}</th>)}</tr></thead><tbody className="divide-y divide-slate-100">{rows.map((row) => <tr key={row.id}><td className="px-4 py-3"><p className="font-semibold">{row.productNameSnapshot}</p><p className="text-xs text-slate-500">{row.sku} {row.variantNameSnapshot ? `| ${row.variantNameSnapshot} / ${row.colorNameSnapshot || "-"}` : ""}</p>{(row.managerRejectReason || row.adminRejectReason) && <p className="mt-1 text-xs font-semibold text-rose-600">{row.managerRejectReason || row.adminRejectReason}</p>}</td><td className="px-4 py-3 text-lg font-semibold text-slate-950">{row.requestedQuantity}</td><td className="px-4 py-3">{mode === "sent" ? row.senderDealer?.dealerName : row.requesterDealer?.dealerName}<p className="text-xs text-slate-500">{[mode === "sent" ? row.senderDealer?.area : row.requesterDealer?.area, mode === "sent" ? row.senderDealer?.city : row.requesterDealer?.city].filter(Boolean).join(", ")}</p></td><td className="px-4 py-3"><UIStatusBadge value={row.status} /></td><td className="px-4 py-3 text-xs text-slate-600">Manager: {row.managerApprovedAt ? formatDate(row.managerApprovedAt) : row.status === "MANAGER_REJECTED" ? "Rejected" : "Pending"}<br />Admin: {row.adminApprovedAt ? formatDate(row.adminApprovedAt) : row.status === "ADMIN_REJECTED" ? "Rejected" : "Pending"}</td><td className="px-4 py-3 text-xs text-slate-600">Created: {formatDate(row.createdAt)}<br />Completed: {formatDate(row.completedAt)}</td><td className="px-4 py-3">{mode === "sent" && row.status === "REQUESTED" ? <Button variant="ghost" className="min-h-9 px-3 py-1.5 text-xs" onClick={() => onCancel(row)}>Cancel</Button> : null}{mode === "received" && row.status === "TRANSFER_COMPLETED" ? <Button variant="soft" className="min-h-9 px-3 py-1.5 text-xs" onClick={() => onReminder(row)}>Send Reminder</Button> : null}</td></tr>)}</tbody></table></div>;
+  return <div className="overflow-x-auto rounded-md border border-slate-200"><table className="w-full min-w-[900px] text-left text-sm"><thead className="bg-slate-50 text-xs font-bold uppercase text-slate-500"><tr>{["Product + SKU", "Quantity", mode === "sent" ? "Sender dealer" : "Requester dealer", "Status", "Approvals", "Dates", "Action"].map((h) => <th key={h} className="px-4 py-3">{h}</th>)}</tr></thead><tbody className="divide-y divide-slate-100">{rows.map((row) => <tr key={row.id}><td className="px-4 py-3"><p className="font-semibold">{row.productNameSnapshot} ({row.sku || "-"})</p><p className="text-xs text-slate-500">{row.variantNameSnapshot ? `${row.variantNameSnapshot} / ${row.colorNameSnapshot || "-"}` : "Standard"}</p>{(row.managerRejectReason || row.adminRejectReason) && <p className="mt-1 text-xs font-semibold text-rose-600">{row.managerRejectReason || row.adminRejectReason}</p>}</td><td className="px-4 py-3 text-lg font-semibold text-slate-950">{row.requestedQuantity}</td><td className="px-4 py-3">{mode === "sent" ? row.senderDealer?.dealerName : row.requesterDealer?.dealerName}<p className="text-xs text-slate-500">{[mode === "sent" ? row.senderDealer?.area : row.requesterDealer?.area, mode === "sent" ? row.senderDealer?.city : row.requesterDealer?.city].filter(Boolean).join(", ")}</p></td><td className="px-4 py-3"><UIStatusBadge value={row.status} /></td><td className="px-4 py-3 text-xs text-slate-600">Manager: {row.managerApprovedAt ? formatDate(row.managerApprovedAt) : row.status === "MANAGER_REJECTED" ? "Rejected" : "Pending"}<br />Admin: {row.adminApprovedAt ? formatDate(row.adminApprovedAt) : row.status === "ADMIN_REJECTED" ? "Rejected" : "Pending"}</td><td className="px-4 py-3 text-xs text-slate-600">Created: {formatDate(row.createdAt)}<br />Completed: {formatDate(row.completedAt)}</td><td className="px-4 py-3">{mode === "sent" && row.status === "REQUESTED" ? <Button variant="ghost" className="min-h-9 px-3 py-1.5 text-xs" onClick={() => onCancel(row)}>Cancel</Button> : null}{mode === "received" && row.status === "TRANSFER_COMPLETED" ? <Button variant="soft" className="min-h-9 px-3 py-1.5 text-xs" onClick={() => onReminder(row)}>Send Reminder</Button> : null}</td></tr>)}</tbody></table></div>;
 }
 
 function StockExchangeRequestModal({ dealer, quantity, setQuantity, reason, setReason, onClose, onSubmit }) {
-  return <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/50 p-4"><form onSubmit={onSubmit} className="w-full max-w-lg rounded-md bg-white p-5 shadow-2xl"><h2 className="text-lg font-semibold text-slate-950">Request stock from {dealer.dealerName}</h2><p className="mt-1 text-sm text-slate-500">{dealer.variantName || "Standard"} {dealer.colorName ? `/ ${dealer.colorName}` : ""} | {dealer.availableQuantity} available</p><TextField className="mt-4" label="Requested quantity" type="number" min="1" max={dealer.availableQuantity} value={quantity} onChange={(e) => setQuantity(e.target.value)} required /><label className="mt-4 block text-sm font-semibold text-slate-600">Reason<textarea className="mt-1 w-full rounded-md border border-slate-200 p-3 text-sm outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100" rows="3" value={reason} onChange={(e) => setReason(e.target.value)} /></label><div className="mt-5 flex justify-end gap-2"><Button variant="ghost" onClick={onClose}>Cancel</Button><Button type="submit">Create Request</Button></div></form></div>;
+  return <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/50 p-4"><form onSubmit={onSubmit} className="w-full max-w-lg rounded-md bg-white p-5 shadow-2xl"><h2 className="text-lg font-semibold text-slate-950">Request stock from {dealer.dealerName}</h2><p className="mt-1 text-sm text-slate-500">{dealer.variantName || "Standard"} {dealer.colorName ? `/ ${dealer.colorName}` : ""} | {dealer.availableQuantity} available</p><p className="mt-1 font-mono text-xs text-indigo-700">SKU: {dealer.sku || dealer.skuSuffix || "-"}</p><TextField className="mt-4" label="Requested quantity" type="number" min="1" max={dealer.availableQuantity} value={quantity} onChange={(e) => setQuantity(e.target.value)} required /><label className="mt-4 block text-sm font-semibold text-slate-600">Reason<textarea className="mt-1 w-full rounded-md border border-slate-200 p-3 text-sm outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100" rows="3" value={reason} onChange={(e) => setReason(e.target.value)} /></label><div className="mt-5 flex justify-end gap-2"><Button variant="ghost" onClick={onClose}>Cancel</Button><Button type="submit">Create Request</Button></div></form></div>;
 }
 
 function ReturnReminderModal({ request, onClose, onSubmit }) {
@@ -645,15 +658,19 @@ function StockCard({ stock, quantity, selection, setSelection, setQuantity, requ
   const status = empty ? "Out of Stock" : low ? "Low Stock" : "Available";
   return (
     <div className="rounded-md border border-slate-200 bg-white p-4 shadow-soft transition hover:-translate-y-0.5 hover:shadow-lg">
-      {(selectedVariant?.image || stock.Product?.image) ? <img src={fileUrl(selectedVariant?.image || stock.Product.image)} alt={stock.Product?.productName} className="mb-3 h-36 w-full rounded-md object-cover" /> : <div className="mb-3 h-36 rounded-md bg-slate-100" />}
+      <ImageWithFallback src={selectedVariant?.image || stock.Product?.image} alt={stock.Product?.productName} className="mb-3 h-36 w-full rounded-md object-cover" fallbackClassName="mb-3 h-36 w-full rounded-md" />
       <div className="flex items-start justify-between gap-2">
-        <div><p className="font-semibold">{stock.Product?.productName}</p><p className="text-sm text-slate-500">{stock.Product?.sku} | {stock.Product?.category || "Uncategorized"} | {formatMoney(price)}</p></div>
+        <div><p className="font-semibold">{productNameWithSku(stock.Product, selectedVariant)}</p><p className="font-mono text-xs text-indigo-700">{productSkuText(stock.Product, selectedVariant)}</p><p className="text-sm text-slate-500">{stock.Product?.category || "Uncategorized"} | {formatMoney(price)}</p></div>
         <span className={`rounded-full border px-2 py-1 text-xs font-semibold ${empty ? "border-red-200 bg-red-50 text-red-700" : low ? "border-yellow-200 bg-yellow-50 text-yellow-700" : "border-green-200 bg-green-50 text-green-700"}`}>{status}</span>
       </div>
       <div className="mt-3 rounded-md bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-800"><Star size={15} className="mr-1 inline" /> {stock.Product?.creditCoins || 0} credit coins per unit</div>
       {variants.length > 0 && <div className="mt-3 grid gap-2 sm:grid-cols-2">
         <label className="block"><span className="text-sm font-medium text-slate-600">Variant</span><select className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2" value={selectedVariantName} onChange={(e) => { const next = variants.find((v) => v.variantName === e.target.value); setSelection({ variantName: e.target.value, productVariantId: next?.id, variant: next }); }}><option value="">Select variant</option>{variantNames.map((name) => <option key={name} value={name}>{name}</option>)}</select></label>
-        <label className="block"><span className="text-sm font-medium text-slate-600">Color</span><select className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2" value={selectedVariant?.id || ""} onChange={(e) => { const next = variants.find((v) => String(v.id) === e.target.value); setSelection({ variantName: next?.variantName, productVariantId: next?.id, variant: next }); }}><option value="">Select color</option>{colors.map((v) => <option key={v.id} value={v.id}>{v.colorName}</option>)}</select></label>
+        <label className="block"><span className="text-sm font-medium text-slate-600">Color / SKU</span><select className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2" value={selectedVariant?.id || ""} onChange={(e) => { const next = variants.find((v) => String(v.id) === e.target.value); setSelection({ variantName: next?.variantName, productVariantId: next?.id, variant: next }); }}><option value="">Select color</option>{colors.map((v) => <option key={v.id} value={v.id}>{v.colorName} - {fullSku(stock.Product, v)}</option>)}</select></label>
+      </div>}
+      {variants.length > 0 && <div className="mt-3 rounded-md border border-slate-200 bg-slate-50 p-3">
+        <p className="mb-2 text-xs font-bold uppercase tracking-wide text-slate-500">All variants with SKU</p>
+        <div className="space-y-2">{variants.map((variant) => <div key={variant.id || variant.skuSuffix} className="flex flex-wrap items-center justify-between gap-2 rounded-md bg-white px-3 py-2 text-xs"><span className="font-semibold text-slate-800">{variant.variantName} / {variant.colorName || "-"}</span><span className="font-mono text-indigo-700">{fullSku(stock.Product, variant)}</span><span className="font-semibold text-slate-600">{variant.stockQuantity ?? 0} qty</span></div>)}</div>
       </div>}
       <p className="mt-3 text-sm font-semibold text-slate-700">Available stock: {availableQuantity}</p>
       {stock.Product?.description && <p className="mt-2 line-clamp-3 text-sm leading-6 text-slate-600">{stock.Product.description}</p>}
@@ -680,24 +697,37 @@ function StockRequestModal({ request, setRequest, onSubmit }) {
 
 function DealerInventory({ rows = [], updateLowStockLimit, readOnly = false }) {
   const [limits, setLimits] = useState({});
+  const groups = Object.values(rows.reduce((acc, item) => {
+    const key = item.productId || item.Product?.id || item.id;
+    acc[key] = acc[key] || { product: item.Product, rows: [], total: 0 };
+    acc[key].rows.push(item);
+    acc[key].total += Number(item.quantity || 0);
+    return acc;
+  }, {}));
   return (
     <Section title="My Inventory and low stock limits">
-      {rows.length ? <div className="grid gap-4 xl:grid-cols-2">{rows.map((item) => {
-        const qty = Number(item.quantity || 0);
-        const limit = Number(limits[item.id] ?? item.lowStockLimit ?? 0);
-        const status = qty === 0 ? "Out of Stock" : qty <= limit ? "Low Stock" : "Available";
+      {groups.length ? <div className="grid gap-4 xl:grid-cols-2">{groups.map((group) => {
+        const product = group.product || {};
+        const groupLimit = Math.min(...group.rows.map((item) => Number(limits[item.id] ?? item.lowStockLimit ?? 0)));
+        const status = group.total === 0 ? "Out of Stock" : group.rows.some((item) => Number(item.quantity || 0) <= Number(limits[item.id] ?? item.lowStockLimit ?? 0)) ? "Low Stock" : "Available";
         return (
-          <div key={item.id} className="rounded-md border border-slate-200 bg-white p-4 shadow-soft">
+          <div key={product.id || group.rows[0]?.id} className="rounded-md border border-slate-200 bg-white p-4 shadow-soft">
             <div className="flex items-start gap-3">
-              {item.Product?.image ? <img src={fileUrl(item.Product.image)} alt={item.Product?.productName} className="h-16 w-16 rounded-md object-cover" /> : <div className="h-16 w-16 rounded-md bg-slate-100" />}
+              <ImageWithFallback src={product.image} alt={product.productName} />
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-start justify-between gap-2">
-                  <div><p className="font-semibold text-slate-900">{item.Product?.productName}</p><p className="text-sm text-slate-500">{item.variantName ? `${item.variantName} | ${item.colorName} | ` : ""}Current quantity: {qty}</p></div>
+                  <div><p className="font-semibold text-slate-900">{productNameWithSku(product)}</p><p className="font-mono text-xs text-indigo-700">{productSkuText(product)}</p><p className="text-sm text-slate-500">Total quantity: {group.total} | Low limit from {Number.isFinite(groupLimit) ? groupLimit : 0}</p></div>
                   <span className={`rounded-full border px-2 py-1 text-xs font-semibold ${status === "Out of Stock" ? "border-red-200 bg-red-50 text-red-700" : status === "Low Stock" ? "border-yellow-200 bg-yellow-50 text-yellow-700" : "border-green-200 bg-green-50 text-green-700"}`}>{status}</span>
                 </div>
-                <div className="mt-3 flex flex-wrap items-end gap-2">
-                  <TextField label="Low stock limit" type="number" min="0" value={limit} onChange={(e) => setLimits({ ...limits, [item.id]: e.target.value })} disabled={readOnly} />
-                  {readOnly ? <span className="rounded-md bg-slate-100 px-3 py-2 text-sm font-semibold text-slate-600">Managed by assigned manager</span> : <Button onClick={() => updateLowStockLimit(item.id, limit)}>Save Limit</Button>}
+                <div className="mt-4 rounded-md border border-slate-200 bg-slate-50 p-3">
+                  <p className="mb-2 text-xs font-bold uppercase tracking-wide text-slate-500">Variants in your inventory</p>
+                  <div className="space-y-3">{group.rows.map((item) => {
+                    const qty = Number(item.quantity || 0);
+                    const limit = Number(limits[item.id] ?? item.lowStockLimit ?? 0);
+                    const variant = rowVariant(item);
+                    const variantStatus = qty === 0 ? "Out of Stock" : qty <= limit ? "Low Stock" : "Available";
+                    return <div key={item.id} className="rounded-md bg-white p-3"><div className="flex flex-wrap items-center justify-between gap-2"><div><p className="font-semibold text-slate-900">{item.variantName || variant?.variantName || "Standard"} / {item.colorName || variant?.colorName || "-"}</p><p className="font-mono text-xs text-indigo-700">{productSkuText(product, variant)}</p></div><div className="flex flex-wrap items-center gap-2"><span className="rounded-full bg-indigo-50 px-2 py-1 text-xs font-bold text-indigo-700">{qty} qty</span><span className={`rounded-full border px-2 py-1 text-xs font-semibold ${variantStatus === "Out of Stock" ? "border-red-200 bg-red-50 text-red-700" : variantStatus === "Low Stock" ? "border-yellow-200 bg-yellow-50 text-yellow-700" : "border-green-200 bg-green-50 text-green-700"}`}>{variantStatus}</span></div></div><div className="mt-3 flex flex-wrap items-end gap-2"><TextField label="Low stock limit" type="number" min="0" value={limit} onChange={(e) => setLimits({ ...limits, [item.id]: e.target.value })} disabled={readOnly} />{readOnly ? <span className="rounded-md bg-slate-100 px-3 py-2 text-sm font-semibold text-slate-600">Managed by assigned manager</span> : <Button onClick={() => updateLowStockLimit(item.id, limit)}>Save Limit</Button>}</div></div>;
+                  })}</div>
                 </div>
               </div>
             </div>
@@ -717,7 +747,7 @@ function DealerSales({ inventory = [], sales = [], form, setForm, onSubmit, filt
   const monthTotal = sales.filter((s) => String(s.saleDate).startsWith(month)).reduce((sum, s) => sum + Number(s.quantitySold || 0), 0);
   const topProducts = Object.values(sales.reduce((acc, sale) => {
     const key = sale.productId;
-    acc[key] = acc[key] || { name: sale.Product?.productName || `Product #${key}`, qty: 0 };
+    acc[key] = acc[key] || { name: productNameWithSku(sale.Product, rowVariant(sale)) || `Product #${key}`, qty: 0 };
     acc[key].qty += Number(sale.quantitySold || 0);
     return acc;
   }, {})).sort((a, b) => b.qty - a.qty).slice(0, 3);
@@ -733,17 +763,17 @@ function DealerSales({ inventory = [], sales = [], form, setForm, onSubmit, filt
         {error && <div className="mb-4 rounded-md border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{error}</div>}
         <FormGrid onSubmit={onSubmit}>
           <TextField label="Sale date" type="date" value={form.saleDate} onChange={(e) => setForm({ ...form, saleDate: e.target.value })} required />
-          <label className="block"><span className="text-sm font-semibold text-slate-600">Product</span><select className="mt-1 w-full rounded-md border border-slate-200 px-3 py-2.5 text-sm" value={form.inventoryId || ""} onChange={(e) => { const item = inventory.find((row) => String(row.id) === e.target.value); setForm({ ...form, inventoryId: e.target.value, productId: item?.productId || "" }); }} required><option value="">Select product</option>{inventory.map((item) => <option key={item.id} value={item.id}>{item.Product?.productName} {item.variantName ? `- ${item.variantName} - ${item.colorName}` : ""} ({item.quantity} available)</option>)}</select></label>
+          <label className="block"><span className="text-sm font-semibold text-slate-600">Product</span><select className="mt-1 w-full rounded-md border border-slate-200 px-3 py-2.5 text-sm" value={form.inventoryId || ""} onChange={(e) => { const item = inventory.find((row) => String(row.id) === e.target.value); setForm({ ...form, inventoryId: e.target.value, productId: item?.productId || "" }); }} required><option value="">Select product</option>{inventory.map((item) => <option key={item.id} value={item.id}>{itemLabelWithSku(item)} ({item.quantity} available)</option>)}</select></label>
           <TextField label="Quantity sold" type="number" min="1" max={selected?.quantity || 0} value={form.quantitySold} onChange={(e) => setForm({ ...form, quantitySold: e.target.value })} required />
           <TextField label="Remarks" value={form.remarks} onChange={(e) => setForm({ ...form, remarks: e.target.value })} />
-          {selected && <div className="md:col-span-2 rounded-md bg-slate-50 p-3 text-sm font-semibold text-slate-700">Current available quantity: {selected.quantity}</div>}
+          {selected && <div className="md:col-span-2 rounded-md bg-slate-50 p-3 text-sm font-semibold text-slate-700">Current available quantity: {selected.quantity}<span className="ml-2 font-mono text-xs text-indigo-700">{productSkuText(selected.Product, rowVariant(selected))}</span></div>}
           {selected && Number(form.quantitySold || 0) > Number(selected.quantity || 0) && <div className="md:col-span-2 rounded-md bg-red-50 p-3 text-sm font-semibold text-red-700">You cannot sell more than available inventory stock.</div>}
           <div className="md:col-span-2">{readOnly ? <span className="inline-flex rounded-md bg-slate-100 px-3 py-2 text-sm font-semibold text-slate-600">Managed by assigned manager</span> : <Button type="submit">Record Sale</Button>}</div>
         </FormGrid>
       </Section>
-      <Section title="Sales history" actions={<div className="flex flex-wrap gap-2"><input className="rounded-md border border-slate-200 px-3 py-2 text-sm" type="date" value={filter.date} onChange={(e) => setFilter({ ...filter, date: e.target.value })} /><select className="rounded-md border border-slate-200 px-3 py-2 text-sm" value={filter.productId} onChange={(e) => setFilter({ ...filter, productId: e.target.value })}><option value="">All products</option>{inventory.map((item) => <option key={item.id} value={item.productId}>{item.Product?.productName}</option>)}</select></div>}>
+      <Section title="Sales history" actions={<div className="flex flex-wrap gap-2"><input className="rounded-md border border-slate-200 px-3 py-2 text-sm" type="date" value={filter.date} onChange={(e) => setFilter({ ...filter, date: e.target.value })} /><select className="rounded-md border border-slate-200 px-3 py-2 text-sm" value={filter.productId} onChange={(e) => setFilter({ ...filter, productId: e.target.value })}><option value="">All products</option>{inventory.map((item) => <option key={item.id} value={item.productId}>{itemLabelWithSku(item)}</option>)}</select></div>}>
         {topProducts.length > 0 && <div className="mb-4 flex flex-wrap gap-2">{topProducts.map((p) => <span key={p.name} className="rounded-full bg-cyan-50 px-3 py-1 text-sm font-semibold text-brand">{p.name}: {p.qty}</span>)}</div>}
-        {filtered.length ? <div className="overflow-x-auto"><table className="w-full text-left text-sm"><thead className="bg-slate-50 text-slate-500"><tr>{["Date", "Product", "Variant", "Color", "Sold", "Before", "After", "Remarks", "Created"].map((h) => <th className="p-3" key={h}>{h}</th>)}</tr></thead><tbody>{filtered.map((sale) => <tr key={sale.id} className="border-t border-slate-100"><td className="p-3">{sale.saleDate}</td><td className="p-3"><div className="flex items-center gap-2">{sale.Product?.image && <img src={fileUrl(sale.Product.image)} alt="" className="h-9 w-9 rounded-md object-cover" />}<span>{sale.Product?.productName}</span></div></td><td>{sale.variantName || "-"}</td><td>{sale.colorName || "-"}</td><td>{sale.quantitySold}</td><td>{sale.stockBefore}</td><td>{sale.stockAfter}</td><td>{sale.remarks || "-"}</td><td>{new Date(sale.createdAt).toLocaleString()}</td></tr>)}</tbody></table></div> : <Empty text="No sales recorded yet" />}
+        {filtered.length ? <div className="overflow-x-auto"><table className="w-full text-left text-sm"><thead className="bg-slate-50 text-slate-500"><tr>{["Date", "Product + SKU", "Variant", "Color", "Sold", "Before", "After", "Remarks", "Created"].map((h) => <th className="p-3" key={h}>{h}</th>)}</tr></thead><tbody>{filtered.map((sale) => <tr key={sale.id} className="border-t border-slate-100"><td className="p-3">{sale.saleDate}</td><td className="p-3"><div className="flex items-center gap-2">{sale.Product?.image && <img src={fileUrl(sale.Product.image)} alt="" className="h-9 w-9 rounded-md object-cover" />}<span>{productNameWithSku(sale.Product, rowVariant(sale))}<span className="block font-mono text-xs text-indigo-700">{productSkuText(sale.Product, rowVariant(sale))}</span></span></div></td><td>{sale.variantName || "-"}</td><td>{sale.colorName || "-"}</td><td>{sale.quantitySold}</td><td>{sale.stockBefore}</td><td>{sale.stockAfter}</td><td>{sale.remarks || "-"}</td><td>{new Date(sale.createdAt).toLocaleString()}</td></tr>)}</tbody></table></div> : <Empty text="No sales recorded yet" />}
       </Section>
     </div>
   );
@@ -771,7 +801,8 @@ function CreditStore({ store = {}, redemptions = [], transactions = [], reload }
   const [filters, setFilters] = useState({ search: "", category: "", affordable: false });
   const [confirmReward, setConfirmReward] = useState(null);
   const wallet = store.wallet || {};
-  const rewards = (store.rewards || []).filter((reward) => {
+  const rewardRows = Array.isArray(store.rewards) ? store.rewards : store.rewards?.data || store.data?.rewards || store.items || [];
+  const rewards = rewardRows.filter((reward) => {
     const matchesSearch = !filters.search || reward.title?.toLowerCase().includes(filters.search.toLowerCase());
     const matchesCategory = !filters.category || reward.category === filters.category;
     const affordable = !filters.affordable || Number(reward.requiredCoins) <= Number(wallet.balance || 0);
@@ -796,8 +827,8 @@ function CreditStore({ store = {}, redemptions = [], transactions = [], reload }
         {rewards.length ? <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{rewards.map((reward) => {
           const affordable = Number(wallet.balance || 0) >= Number(reward.requiredCoins || 0);
           const available = Number(reward.quantity || 0) > 0;
-          return <div key={reward.id} className="rounded-md border border-slate-200 bg-white p-4 shadow-soft">{reward.image ? <img src={fileUrl(reward.image)} alt={reward.title} className="mb-3 h-36 w-full rounded-md object-cover" /> : <div className="mb-3 grid h-36 place-items-center rounded-md bg-slate-100"><Gift className="text-slate-400" /></div>}<div className="flex items-start justify-between gap-3"><div><p className="font-semibold">{reward.title}</p><p className="text-sm text-slate-500">{reward.category || "General"}</p></div><span className={`rounded-full border px-2 py-1 text-xs font-semibold ${affordable ? "border-green-200 bg-green-50 text-green-700" : "border-amber-200 bg-amber-50 text-amber-700"}`}>{affordable ? "Affordable" : "Need more coins"}</span></div><p className="mt-2 line-clamp-3 text-sm text-slate-600">{reward.description}</p><p className="mt-3 font-semibold">{reward.requiredCoins} coins | {reward.quantity} available</p><Button className="mt-3 w-full" disabled={!affordable || !available} onClick={() => setConfirmReward(reward)}>Redeem</Button></div>;
-        })}</div> : <Empty text="No rewards found" />}
+          return <div key={reward.id} className="rounded-md border border-slate-200 bg-white p-4 shadow-soft"><ImageWithFallback src={reward.image} alt={reward.title} className="mb-3 h-36 w-full rounded-md object-cover" fallbackClassName="mb-3 h-36 w-full rounded-md" /><div className="flex items-start justify-between gap-3"><div><p className="font-semibold">{reward.title}</p><p className="text-sm text-slate-500">{reward.category || "General"}</p></div><span className={`rounded-full border px-2 py-1 text-xs font-semibold ${affordable ? "border-green-200 bg-green-50 text-green-700" : "border-amber-200 bg-amber-50 text-amber-700"}`}>{affordable ? "Affordable" : "Need more coins"}</span></div><p className="mt-2 line-clamp-3 text-sm text-slate-600">{reward.description}</p><p className="mt-3 font-semibold">{reward.requiredCoins} coins | {reward.quantity} available</p><Button className="mt-3 w-full" disabled={!affordable || !available} onClick={() => setConfirmReward(reward)}>Redeem</Button></div>;
+        })}</div> : <Empty text="No active rewards are available for your company" />}
       </Section>
       <Table title="Redemption history" rows={redemptions.map((r) => ({ reward: r.reward?.title, coins: r.coinsUsed, status: r.status, requested: r.requestedAt ? new Date(r.requestedAt).toLocaleString() : "", expectedProvideDate: r.expectedProvideDate || "-", providedAt: r.providedAt ? new Date(r.providedAt).toLocaleString() : "-", adminNote: r.adminNote || "-" }))} cols={["reward", "coins", "status", "requested", "expectedProvideDate", "providedAt", "adminNote"]} />
       <Table title="Credit transactions" rows={transactions.map((t) => ({ type: t.type, coins: t.coins, before: t.balanceBefore, after: t.balanceAfter, description: t.description, date: new Date(t.createdAt).toLocaleString() }))} cols={["type", "coins", "before", "after", "description", "date"]} />
@@ -814,19 +845,19 @@ function Orders({ rows, filter, setFilter, search, setSearch }) {
   const filtered = useMemo(() => rows.filter((order) => {
     const inDelivery = ["packing", "shipping", "out_for_delivery"].includes(order.status);
     const matchesFilter = filter === "all" || order.status === filter || (filter === "delivery" && inDelivery);
-    const haystack = `${order.orderNumber} ${order.items?.map((i) => i.Product?.productName).join(" ")}`.toLowerCase();
+    const haystack = `${order.orderNumber} ${order.items?.map(itemLabelWithSku).join(" ")}`.toLowerCase();
     return matchesFilter && haystack.includes(search.toLowerCase());
   }), [rows, filter, search]);
   return <Section title="My orders" actions={<input className="rounded-md border border-slate-300 px-3 py-2 text-sm" placeholder="Search order/product" value={search} onChange={(e) => setSearch(e.target.value)} />}><div className="mb-4 flex flex-wrap gap-2">{["all", "pending", "approved", "delivery", "delivered", "rejected"].map((status) => <button key={status} onClick={() => setFilter(status)} className={`rounded-full px-3 py-1 text-sm font-semibold ${filter === status ? "bg-brand text-white" : "bg-slate-100 text-slate-600"}`}>{status.replaceAll("_", " ")}</button>)}</div>{filtered.length ? <div className="space-y-4">{filtered.map((order) => <OrderCard key={order.id} order={order} />)}</div> : <Empty />}</Section>;
 }
 
 function OrderCard({ order }) {
-  const summary = order.items?.map((i) => `${i.Product?.productName}${i.variantName ? ` - ${i.variantName}/${i.colorName}` : ""} x ${i.quantity}`).join(", ");
+  const summary = order.items?.map((i) => `${itemLabelWithSku(i)} x ${i.quantity}`).join(", ");
   return <div className="rounded-md border border-slate-200 bg-white p-4 shadow-soft transition hover:shadow-lg"><div className="flex flex-wrap items-start justify-between gap-3"><div><p className="font-semibold">{summary || "Order"}</p><p className="text-sm text-slate-500">Order Date: {new Date(order.createdAt).toLocaleString()}</p><p className="mt-1 text-xs text-slate-400">Reference: {order.orderNumber}</p></div><div className="flex flex-wrap gap-2"><StatusBadge value={order.status} /><span className="rounded-full bg-slate-100 px-3 py-1 text-sm font-semibold">{formatMoney(order.totalAmount)}</span></div></div><DeliveryTimeline order={order} /><div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-sm"><span>Expected delivery: {order.deliveredDate || "-"}</span><Button variant="ghost">View Details</Button></div></div>;
 }
 
 function DeliveryBoard({ rows }) {
-  return <Section title="Delivery tracking">{rows.length ? <div className="grid gap-4 xl:grid-cols-2">{rows.map((order) => { const summary = order.items?.map((i) => `${i.Product?.productName}${i.variantName ? ` - ${i.variantName}/${i.colorName}` : ""} x ${i.quantity}`).join(", "); return <div key={order.id} className="rounded-md border border-slate-200 bg-white p-4 shadow-soft transition hover:shadow-lg"><div className="flex flex-wrap justify-between gap-3"><div><p className="font-semibold">{summary || "Delivery"}</p><p className="text-sm text-slate-500">Reference: {order.orderNumber}</p></div><StatusBadge value={order.status} /></div><DeliveryTimeline order={order} /><p className="mt-3 text-sm text-slate-500">Days left until delivered: {order.daysLeftUntilDelivered ?? "-"}</p></div>; })}</div> : <Empty />}</Section>;
+  return <Section title="Delivery tracking">{rows.length ? <div className="grid gap-4 xl:grid-cols-2">{rows.map((order) => { const summary = order.items?.map((i) => `${itemLabelWithSku(i)} x ${i.quantity}`).join(", "); return <div key={order.id} className="rounded-md border border-slate-200 bg-white p-4 shadow-soft transition hover:shadow-lg"><div className="flex flex-wrap justify-between gap-3"><div><p className="font-semibold">{summary || "Delivery"}</p><p className="text-sm text-slate-500">Reference: {order.orderNumber}</p></div><StatusBadge value={order.status} /></div><DeliveryTimeline order={order} /><p className="mt-3 text-sm text-slate-500">Days left until delivered: {order.daysLeftUntilDelivered ?? "-"}</p></div>; })}</div> : <Empty />}</Section>;
 }
 
 function DeliveryLine({ order }) {
@@ -843,7 +874,7 @@ function StatusBadge({ value }) {
 function DealerFinance({ rows = [], pay, readOnly = false }) {
   const [tab, setTab] = useState("unpaid");
   const visible = rows.filter((p) => tab === "all" || (tab === "unpaid" ? p.paymentStatus === "pending" : p.paymentStatus === "paid"));
-  return <Section title="Payment requests and history" actions={<div className="flex gap-2">{["unpaid", "paid", "all"].map((item) => <button key={item} onClick={() => setTab(item)} className={`rounded-full px-3 py-1 text-sm font-semibold ${tab === item ? "bg-brand text-white" : "bg-slate-100 text-slate-600"}`}>{item}</button>)}</div>}>{visible.length ? <div className="space-y-4">{visible.map((p) => <div key={p.id} className="rounded-md border border-slate-200 p-4"><div className="flex flex-wrap justify-between gap-3"><div><p className="font-semibold">{p.invoiceNumber || `Invoice #${p.id}`} · {formatMoney(p.amount)}</p><p className="text-sm text-slate-500">Order {p.orderNumber || p.Order?.orderNumber || p.orderId} · approved {p.orderApprovedAt ? new Date(p.orderApprovedAt).toLocaleDateString() : "-"}</p><p className="mt-1 text-sm text-slate-500"><FinanceBadge value={p.paymentStatus} /> {p.paymentStatus === "pending" && <span className="ml-2 font-semibold text-amber-700">{p.daysUnpaid || 0} days unpaid</span>}</p><p className="mt-1 text-xs text-slate-500">{p.productSummary || p.Order?.items?.map((i) => `${i.Product?.productName}${i.variantName ? ` - ${i.variantName}/${i.colorName}` : ""} x ${i.quantity}`).join(", ")}</p></div><div className="flex flex-wrap items-center gap-2">{p.invoiceFile && <a className="rounded-md border border-slate-200 px-3 py-2 text-sm text-indigo-700" href={fileUrl(p.invoiceFile)} target="_blank">View Invoice</a>}{p.paymentStatus === "pending" ? <><Button onClick={() => pay(p.id, "online")}>Pay Online</Button><Button variant="ghost" onClick={() => pay(p.id, "cash")}>Cash Paid</Button></> : <span className="rounded-md bg-green-50 px-3 py-2 text-sm font-semibold text-green-700">Paid <FinanceBadge value={p.paymentMethod} /></span>}</div></div>{p.transactionId && <p className="mt-2 text-xs text-slate-500">Transaction: {p.transactionId}</p>}{p.paidAt && <p className="mt-1 text-xs text-slate-500">Paid at: {new Date(p.paidAt).toLocaleString()}</p>}{p.creditAwarded && <p className="mt-1 text-xs font-semibold text-emerald-700">Credit coins awarded</p>}</div>)}</div> : <Empty text="No payment requests yet" />}</Section>;
+  return <Section title="Payment requests and history" actions={<div className="flex gap-2">{["unpaid", "paid", "all"].map((item) => <button key={item} onClick={() => setTab(item)} className={`rounded-full px-3 py-1 text-sm font-semibold ${tab === item ? "bg-brand text-white" : "bg-slate-100 text-slate-600"}`}>{item}</button>)}</div>}>{visible.length ? <div className="space-y-4">{visible.map((p) => <div key={p.id} className="rounded-md border border-slate-200 p-4"><div className="flex flex-wrap justify-between gap-3"><div><p className="font-semibold">{p.invoiceNumber || `Invoice #${p.id}`} - {formatMoney(p.amount)}</p><p className="text-sm text-slate-500">Order {p.orderNumber || p.Order?.orderNumber || p.orderId} - approved {p.orderApprovedAt ? new Date(p.orderApprovedAt).toLocaleDateString() : "-"}</p><p className="mt-1 text-sm text-slate-500"><FinanceBadge value={p.paymentStatus} /> {p.paymentStatus === "pending" && <span className="ml-2 font-semibold text-amber-700">{p.daysUnpaid || 0} days unpaid</span>}</p><p className="mt-1 text-xs text-slate-500">{p.Order?.items?.map((i) => `${itemLabelWithSku(i)} x ${i.quantity}`).join(", ") || p.productSummary}</p></div><div className="flex flex-wrap items-center gap-2">{p.invoiceFile && <a className="rounded-md border border-slate-200 px-3 py-2 text-sm text-indigo-700" href={fileUrl(p.invoiceFile)} target="_blank">View Invoice</a>}{p.paymentStatus === "pending" ? <><Button onClick={() => pay(p.id, "online")}>Pay Online</Button><Button variant="ghost" onClick={() => pay(p.id, "cash")}>Cash Paid</Button></> : <span className="rounded-md bg-green-50 px-3 py-2 text-sm font-semibold text-green-700">Paid <FinanceBadge value={p.paymentMethod} /></span>}</div></div>{p.transactionId && <p className="mt-2 text-xs text-slate-500">Transaction: {p.transactionId}</p>}{p.paidAt && <p className="mt-1 text-xs text-slate-500">Paid at: {new Date(p.paidAt).toLocaleString()}</p>}{p.creditAwarded && <p className="mt-1 text-xs font-semibold text-emerald-700">Credit coins awarded</p>}</div>)}</div> : <Empty text="No payment requests yet" />}</Section>;
 }
 
 function FinanceBadge({ value }) {

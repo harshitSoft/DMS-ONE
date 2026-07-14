@@ -1,6 +1,8 @@
 const mysql = require("mysql2/promise");
 
 async function ensureDatabase() {
+  if (process.env.DB_DIALECT === "postgres" || process.env.DATABASE_URL) return;
+
   const connection = await mysql.createConnection({
     host: process.env.DB_HOST || "localhost",
     port: process.env.DB_PORT || 3306,

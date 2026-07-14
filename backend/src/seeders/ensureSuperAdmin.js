@@ -20,7 +20,7 @@ const ensureSuperAdmin = async () => {
       name: SUPER_ADMIN_NAME,
       email: SUPER_ADMIN_EMAIL,
       password: passwordHash,
-      role: "SUPER_ADMIN_CEO",
+      role: "SUPER_ADMIN",
       status: "active",
       companyId: null,
       dealerId: null
@@ -31,7 +31,7 @@ const ensureSuperAdmin = async () => {
       name: SUPER_ADMIN_NAME,
       email: SUPER_ADMIN_EMAIL,
       password: passwordHash,
-      role: "SUPER_ADMIN_CEO",
+      role: "SUPER_ADMIN",
       status: "active"
     }, { hooks: false });
     console.log("Super Admin created.");

@@ -4,8 +4,13 @@ const { protect, permit } = require("../middleware/auth");
 
 router.use(protect, permit("SUPER_ADMIN", "SUPER_ADMIN_CEO"));
 router.get("/dashboard", ctrl.dashboard);
-router.route("/companies").get(ctrl.listCompanies).post(ctrl.createCompany);
-router.route("/companies/:id").get(ctrl.getCompany).put(ctrl.updateCompany).delete(ctrl.deleteCompany);
-router.patch("/companies/:id/status", ctrl.setCompanyStatus);
+router.route("/organizations").get(ctrl.listOrganizations).post(ctrl.createOrganization);
+router.route("/organizations/:id").get(ctrl.getOrganization).put(ctrl.updateOrganization).delete(ctrl.deleteOrganization);
+router.patch("/organizations/:id/status", ctrl.setOrganizationStatus);
+
+// Non-license compatibility aliases for the original single-Super-Admin client.
+router.route("/companies").get(ctrl.listOrganizations).post(ctrl.createOrganization);
+router.route("/companies/:id").get(ctrl.getOrganization).put(ctrl.updateOrganization).delete(ctrl.deleteOrganization);
+router.patch("/companies/:id/status", ctrl.setOrganizationStatus);
 
 module.exports = router;

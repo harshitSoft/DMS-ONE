@@ -2,11 +2,12 @@ const router = require("express").Router();
 const ctrl = require("../controllers/adminCeoController");
 const { protect, permit } = require("../middleware/auth");
 const { ADMIN_OWNER_ROLES } = require("../middleware/roles");
+const { licenseSystemEnabled } = require("../utils/featureFlags");
 
 router.use(protect, permit("ADMIN", "ADMIN_CEO", "DEALER_MANAGER", "PRODUCT_DELIVERY_MANAGER", "FINANCE_MANAGER"));
 router.get("/dashboard", permit("ADMIN", "ADMIN_CEO"), ctrl.dashboard);
 router.get("/dealers-overview", permit("ADMIN", "ADMIN_CEO"), ctrl.dealersOverview);
-router.get("/license-overview", permit("ADMIN", "ADMIN_CEO"), ctrl.licenseOverview);
+router.get("/license-overview", permit("ADMIN", "ADMIN_CEO"), licenseSystemEnabled() ? ctrl.licenseOverview : (req, res) => res.status(410).json({ message: "The license system is no longer active." }));
 router.get("/product-overview", permit("ADMIN", "ADMIN_CEO"), ctrl.productOverview);
 router.get("/order-overview", permit("ADMIN", "ADMIN_CEO"), ctrl.orderOverview);
 router.get("/delivery-overview", permit("ADMIN", "ADMIN_CEO"), ctrl.deliveryOverview);

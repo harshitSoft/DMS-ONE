@@ -1,11 +1,20 @@
 import { useEffect, useState } from "react";
 import { AlertTriangle, CheckCircle2, Clock, Gift, IndianRupee, PackageCheck, Star, Truck, Users } from "lucide-react";
-import { Bar, BarChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, Legend, Pie, PieChart, PolarAngleAxis, PolarGrid, PolarRadiusAxis, Radar, RadarChart, RadialBar, RadialBarChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import Layout from "../components/Layout";
 import { api, fileUrl } from "../api/client";
 import { Button, Card, DeliveryTimeline, Empty, FileUploadPreview, FormGrid, formatDate, formatMoney, Loading, PageHeader, PaymentBadge, Plus, Section, StatusBadge, TextField } from "../components/UI";
 import { useAuth } from "../state/AuthContext";
 import { consumeProfileTargetTab, roleTabs } from "../utils/profileNavigation";
+
+const fullSku = (product, variant) => [product?.sku, variant?.skuSuffix].filter(Boolean).join("-") || product?.sku || "-";
+const productNameWithSku = (product, variant) => `${product?.productName || "Product"} (${fullSku(product, variant)})`;
+const rowNameWithSku = (row, nameKey = "productName", skuKey = "sku") => `${row?.[nameKey] || "Product"}${row?.[skuKey] ? ` (${row[skuKey]})` : ""}`;
+const orderItemLabel = (item) => {
+  const variant = item.ProductVariant || item;
+  const variantText = item.variantName ? ` - ${item.variantName}/${item.colorName || "-"}` : "";
+  return `${productNameWithSku(item.Product, variant)}${variantText} x ${item.quantity}`;
+};
 
 const tabs = [
   { id: "dashboard", label: "Dashboard", icon: "dashboard" },
@@ -33,8 +42,9 @@ export default function Admin() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   const [dealerForm, setDealerForm] = useState({ dealerName: "", ownerName: "", email: "", password: "dealer123", phone: "", area: "", city: "", state: "", pincode: "", address: "" });
-  const [productForm, setProductForm] = useState({ productName: "", sku: "", category: "", description: "", price: 0, quantity: 0, lowStockLimit: 10, creditCoins: 0, status: "active" });
+  const [productForm, setProductForm] = useState({ productName: "", category: "", description: "", manufacturingDate: "", expiryDate: "", price: 0, quantity: 0, lowStockLimit: 10, creditCoins: 0, status: "active" });
   const [variantRows, setVariantRows] = useState([{ variantName: "Standard", colorName: "Default", stockQuantity: 0, priceOverride: "", skuSuffix: "", status: "active" }]);
+  const [editingProduct, setEditingProduct] = useState(null);
   const [policyForm, setPolicyForm] = useState({ title: "", description: "", visibleToDealers: true });
   const [messageForm, setMessageForm] = useState({ title: "", message: "", dealerId: "" });
   const [paymentForm, setPaymentForm] = useState({ dealerId: "", orderId: "", amount: 0, paymentMethod: "UPI", paymentStatus: "pending", transactionId: "" });
@@ -49,6 +59,10 @@ export default function Admin() {
   const [rewardForm, setRewardForm] = useState({ title: "", description: "", requiredCoins: 0, quantity: 0, category: "", terms: "", status: "active" });
   const [rewardImage, setRewardImage] = useState(null);
   const [rewardPreview, setRewardPreview] = useState("");
+  const [orderFilter, setOrderFilter] = useState("all");
+  const [orderPage, setOrderPage] = useState(1);
+  const [deliveryFilter, setDeliveryFilter] = useState("all");
+  const [deliveryPage, setDeliveryPage] = useState(1);
 
   const load = async () => {
     setLoading(true);
@@ -136,7 +150,7 @@ export default function Admin() {
     formData.append("variants", JSON.stringify(variantRows));
     if (productImage) formData.append("image", productImage);
     await api.post("/admin/products", formData, { headers: { "Content-Type": "multipart/form-data" } });
-    setProductForm({ ...productForm, productName: "", sku: "", quantity: 0 });
+    setProductForm({ ...productForm, productName: "", description: "", manufacturingDate: "", expiryDate: "", quantity: 0 });
     setVariantRows([{ variantName: "Standard", colorName: "Default", stockQuantity: 0, priceOverride: "", skuSuffix: "", status: "active" }]);
     setProductImage(null);
     setProductPreview("");
@@ -180,13 +194,18 @@ export default function Admin() {
   };
 
   const quickEditProduct = async (product) => {
-    const productName = prompt("Product name", product.productName);
-    if (productName == null) return;
-    const price = prompt("Price", product.price);
-    if (price == null) return;
-    const creditCoins = prompt("Credit Coins per Unit", product.creditCoins || 0);
-    if (creditCoins == null) return;
-    await api.put(`/admin/products/${product.id}`, { productName, price, creditCoins, sku: product.sku, category: product.category, description: product.description, status: product.status });
+    setEditingProduct(product);
+  };
+
+  const saveProductEdit = async (form) => {
+    const formData = new FormData();
+    Object.entries(form).forEach(([key, value]) => {
+      if (!["id", "variants", "imageFile"].includes(key)) formData.append(key, value ?? "");
+    });
+    formData.append("variants", JSON.stringify(form.variants || []));
+    if (form.imageFile) formData.append("image", form.imageFile);
+    await api.put(`/admin/products/${form.id}`, formData, { headers: { "Content-Type": "multipart/form-data" } });
+    setEditingProduct(null);
     load();
   };
 
@@ -228,7 +247,7 @@ export default function Admin() {
         description="Monitor organization operations, dealer performance, stock, orders, delivery and finance from one workspace."
       />
       {loadError && <div className="mb-5 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm font-semibold text-amber-800 shadow-sm"><span>{loadError}</span><Button variant="ghost" onClick={load}>Retry</Button></div>}
-      {activeTab === "dashboard" && (user?.role === "ADMIN_CEO" ? <AdminCeoReadOnlyOverview endpoint="/admin-ceo/dashboard" type="dashboard" /> : <AdminAnalytics analytics={data.dashboard_analytics} fallbackCards={dashboardCards} />)}
+      {activeTab === "dashboard" && (user?.role === "ADMIN_CEO" ? <AdminCeoReadOnlyOverview endpoint="/admin-ceo/dashboard" type="dashboard" /> : user?.role === "PRODUCT_DELIVERY_MANAGER" ? <ProductDeliveryManagerDashboard analytics={data.dashboard_analytics} products={data.products || []} orders={data.orders || []} dealerStock={data.stock_dealers || []} fallbackCards={dashboardCards} /> : user?.role === "FINANCE_MANAGER" ? <FinanceManagerDashboard analytics={data.dashboard_analytics} payments={data.finance_payments?.payments || []} stats={data.finance_payments?.stats || {}} fallbackCards={dashboardCards} /> : <AdminAnalytics analytics={data.dashboard_analytics} fallbackCards={dashboardCards} />)}
       {activeTab === "adminManagers" && <AdminManagers />}
       {activeTab === "adminChat" && <AdminTeamChat />}
       {activeTab === "adminPinned" && ["ADMIN", "ADMIN_CEO"].includes(user?.role) && <AdminPinnedMessages />}
@@ -261,9 +280,9 @@ export default function Admin() {
       )}
       {activeTab === "products" && (
         <>
-          <Section title="Upload product and stock">
+          <Section title="Create product" actions={<span className="rounded-full bg-indigo-50 px-3 py-1 text-xs font-bold text-indigo-700">SKU auto-generates after save</span>}>
             <FormGrid onSubmit={createProduct}>
-              {Object.keys(productForm).map((k) => <TextField key={k} label={k.replace(/([A-Z])/g, " $1")} value={productForm[k]} onChange={(e) => setProductForm({ ...productForm, [k]: e.target.value })} type={["price", "quantity", "lowStockLimit", "creditCoins"].includes(k) ? "number" : "text"} min={["quantity", "lowStockLimit", "creditCoins"].includes(k) ? "0" : undefined} />)}
+              {Object.keys(productForm).map((k) => <TextField key={k} label={k.replace(/([A-Z])/g, " $1")} value={productForm[k]} onChange={(e) => setProductForm({ ...productForm, [k]: e.target.value })} type={["price", "quantity", "lowStockLimit", "creditCoins"].includes(k) ? "number" : ["manufacturingDate", "expiryDate"].includes(k) ? "date" : "text"} min={["quantity", "lowStockLimit", "creditCoins"].includes(k) ? "0" : undefined} />)}
               <FileUploadPreview label="Product photo" preview={productPreview} accept="image/*" onChange={(e) => { const file = e.target.files?.[0]; setProductImage(file || null); setProductPreview(file ? URL.createObjectURL(file) : ""); }} />
               <div className="md:col-span-2">
                 <VariantEditor rows={variantRows} setRows={setVariantRows} />
@@ -272,12 +291,13 @@ export default function Admin() {
             </FormGrid>
           </Section>
           <ProductTable rows={(data.products || []).map((p) => ({ ...p, quantity: p.CompanyInventory?.quantity || 0, lowStockLimit: p.CompanyInventory?.lowStockLimit || 0 }))} onEdit={quickEditProduct} onDelete={deleteProduct} />
-          <SimpleTable title="Dealer-wise stock" rows={(data.stock_dealers || []).map((s) => ({ dealer: s.Dealer?.dealerName || "Dealer", location: [s.Dealer?.area, s.Dealer?.city].filter(Boolean).join(", "), product: s.Product?.productName, variant: s.variantName || "-", color: s.colorName || "-", quantity: s.quantity, lowStockLimit: s.lowStockLimit }))} cols={["dealer", "location", "product", "variant", "color", "quantity", "lowStockLimit"]} />
+          {editingProduct && <ProductEditModal product={editingProduct} onClose={() => setEditingProduct(null)} onSave={saveProductEdit} />}
+          <SimpleTable title="Dealer-wise stock" rows={(data.stock_dealers || []).map((s) => ({ dealer: s.Dealer?.dealerName || "Dealer", location: [s.Dealer?.area, s.Dealer?.city].filter(Boolean).join(", "), product: productNameWithSku(s.Product, s.ProductVariant || s), variant: s.variantName || "-", color: s.colorName || "-", quantity: s.quantity, lowStockLimit: s.lowStockLimit }))} cols={["dealer", "location", "product", "variant", "color", "quantity", "lowStockLimit"]} />
         </>
       )}
       {activeTab === "inventory" && <InventoryBoard products={(data.products || []).map((p) => ({ ...p, quantity: p.CompanyInventory?.quantity || 0, lowStockLimit: p.CompanyInventory?.lowStockLimit || 0 }))} dealerStock={data.stock_dealers || []} />}
-      {activeTab === "orders" && <OrderTable rows={data.orders || []} updateOrder={updateOrder} approveOrder={approveOrder} schedules={schedules} setSchedules={setSchedules} />}
-      {activeTab === "delivery" && <DeliveryManagement rows={(data.orders || []).filter((o) => ["approved", "packing", "shipping", "out_for_delivery", "delivered"].includes(o.status))} updateOrder={updateOrder} />}
+      {activeTab === "orders" && <OrderTable rows={data.orders || []} updateOrder={updateOrder} approveOrder={approveOrder} schedules={schedules} setSchedules={setSchedules} filter={orderFilter} setFilter={setOrderFilter} page={orderPage} setPage={setOrderPage} />}
+      {activeTab === "delivery" && <DeliveryManagement rows={(data.orders || []).filter((o) => ["approved", "packing", "shipping", "out_for_delivery", "delivered"].includes(o.status))} updateOrder={updateOrder} filter={deliveryFilter} setFilter={setDeliveryFilter} page={deliveryPage} setPage={setDeliveryPage} />}
       {activeTab === "finance" && (
         <>
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
@@ -301,6 +321,121 @@ export default function Admin() {
       {activeTab === "internalUpdates" && <InternalUpdates data={data.internalUpdates} filter={internalFilter} setFilter={setInternalFilter} markRead={markUpdateRead} markAll={markAllUpdatesRead} />}
       {activeTab === "reports" && <SimpleTable title="Dealer reports and updates" rows={data.reports} cols={["title", "type", "description", "dealerId", "createdAt"]} />}
     </Layout>
+  );
+}
+
+function ProductDeliveryManagerDashboard({ analytics, products = [], orders = [], dealerStock = [], fallbackCards = [] }) {
+  const summary = analytics?.summary || {};
+  const normalizedProducts = products.map((p) => ({ ...p, quantity: Number(p.CompanyInventory?.quantity ?? p.quantity ?? 0), lowStockLimit: Number(p.CompanyInventory?.lowStockLimit ?? p.lowStockLimit ?? 0) }));
+  const statusCounts = orders.reduce((acc, order) => ({ ...acc, [order.status || "pending"]: (acc[order.status || "pending"] || 0) + 1 }), {});
+  const orderStatusData = Object.entries(statusCounts).map(([status, count]) => ({ status: status.replaceAll("_", " "), count }));
+  const stockHealth = [
+    { name: "Available", value: normalizedProducts.filter((p) => p.quantity > p.lowStockLimit).length },
+    { name: "Low stock", value: normalizedProducts.filter((p) => p.quantity > 0 && p.quantity <= p.lowStockLimit).length },
+    { name: "Out of stock", value: normalizedProducts.filter((p) => p.quantity <= 0).length }
+  ];
+  const stockArea = normalizedProducts.slice().sort((a, b) => b.quantity - a.quantity).slice(0, 10).map((p) => ({ product: productNameWithSku(p), stock: p.quantity, lowLimit: p.lowStockLimit, sku: p.sku }));
+  const dealerStockArea = Object.values(dealerStock.reduce((acc, row) => {
+    const dealerName = row.Dealer?.dealerName || "Dealer";
+    acc[dealerName] = acc[dealerName] || { dealerName, quantity: 0 };
+    acc[dealerName].quantity += Number(row.quantity || 0);
+    return acc;
+  }, {})).slice(0, 10);
+  const radarData = ["pending", "approved", "packing", "shipping", "out_for_delivery", "delivered", "rejected"].map((status) => ({ status: status.replaceAll("_", " "), orders: statusCounts[status] || 0 }));
+  const cards = [
+    ["Products", summary.totalProducts ?? normalizedProducts.length],
+    ["Company Stock", summary.totalCompanyStock ?? normalizedProducts.reduce((sum, p) => sum + p.quantity, 0)],
+    ["Low Stock", summary.lowStockProducts ?? stockHealth[1].value],
+    ["Pending Orders", summary.pendingOrders ?? (statusCounts.pending || 0)],
+    ["Approved Orders", summary.approvedOrders ?? (statusCounts.approved || 0)],
+    ["Delivered Orders", summary.deliveredOrders ?? (statusCounts.delivered || 0)],
+    ["Dealer Stock Rows", dealerStock.length],
+    ["Delivery In Progress", ["packing", "shipping", "out_for_delivery"].reduce((sum, status) => sum + (statusCounts[status] || 0), 0)]
+  ];
+  const colors = ["#16A34A", "#F59E0B", "#DC2626", "#4F46E5", "#0EA5E9", "#8B5CF6"];
+  const displayCards = cards.length ? cards : fallbackCards;
+  return (
+    <div className="space-y-6">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">{displayCards.map(([label, value]) => <Card key={label} label={label} value={value ?? 0} />)}</div>
+      <div className="grid gap-6 xl:grid-cols-2">
+        <Section title="Product stock health">
+          <div className="h-80"><ResponsiveContainer><PieChart><Pie data={stockHealth} dataKey="value" nameKey="name" outerRadius={95} label>{stockHealth.map((entry, index) => <Cell key={entry.name} fill={colors[index % colors.length]} />)}</Pie><Tooltip /><Legend /></PieChart></ResponsiveContainer></div>
+        </Section>
+        <Section title="Order status radar">
+          <div className="h-80"><ResponsiveContainer><RadarChart data={radarData}><PolarGrid /><PolarAngleAxis dataKey="status" /><PolarRadiusAxis allowDecimals={false} /><Radar name="Orders" dataKey="orders" stroke="#4F46E5" fill="#4F46E5" fillOpacity={0.35} /><Tooltip /><Legend /></RadarChart></ResponsiveContainer></div>
+        </Section>
+      </div>
+      <div className="grid gap-6 xl:grid-cols-2">
+        <Section title="Company stock area graph">
+          <div className="h-80"><ResponsiveContainer><AreaChart data={stockArea}><defs><linearGradient id="productStockFill" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#0EA5E9" stopOpacity={0.45} /><stop offset="95%" stopColor="#0EA5E9" stopOpacity={0.05} /></linearGradient></defs><CartesianGrid strokeDasharray="3 3" /><XAxis dataKey="product" /><YAxis /><Tooltip formatter={(value, name, row) => [value, name === "stock" ? `Stock (${row.payload.sku || "-"})` : "Low limit"]} /><Legend /><Area type="monotone" dataKey="stock" stroke="#0EA5E9" fill="url(#productStockFill)" /><Area type="monotone" dataKey="lowLimit" stroke="#F59E0B" fill="#F59E0B22" /></AreaChart></ResponsiveContainer></div>
+        </Section>
+        <Section title="Dealer inventory distribution">
+          <div className="h-80"><ResponsiveContainer><AreaChart data={dealerStockArea}><defs><linearGradient id="dealerStockFill" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#10B981" stopOpacity={0.45} /><stop offset="95%" stopColor="#10B981" stopOpacity={0.05} /></linearGradient></defs><CartesianGrid strokeDasharray="3 3" /><XAxis dataKey="dealerName" /><YAxis /><Tooltip /><Legend /><Area type="monotone" dataKey="quantity" stroke="#10B981" fill="url(#dealerStockFill)" /></AreaChart></ResponsiveContainer></div>
+        </Section>
+      </div>
+      <div className="grid gap-6 xl:grid-cols-2">
+        <MiniList title="Top stock products with SKU" rows={stockArea.map((p) => ({ productName: `${p.product} (${p.sku || "-"})`, quantity: p.stock }))} left="productName" right="quantity" />
+        <MiniList title="Order status summary" rows={orderStatusData.map((row) => ({ status: row.status, count: row.count }))} left="status" right="count" />
+      </div>
+    </div>
+  );
+}
+
+function FinanceManagerDashboard({ analytics, payments = [], stats = {}, fallbackCards = [] }) {
+  const summary = analytics?.summary || {};
+  const statusData = Object.entries(payments.reduce((acc, payment) => ({ ...acc, [payment.paymentStatus || "pending"]: (acc[payment.paymentStatus || "pending"] || 0) + 1 }), {})).map(([status, count]) => ({ status, count }));
+  const methodData = Object.entries(payments.reduce((acc, payment) => ({ ...acc, [payment.paymentMethod || "not selected"]: (acc[payment.paymentMethod || "not selected"] || 0) + 1 }), {})).map(([method, count]) => ({ method, count, fill: method === "online" ? "#4F46E5" : method === "cash" ? "#0EA5E9" : "#94A3B8" }));
+  const dealerOutstanding = Object.values(payments.filter((payment) => payment.paymentStatus === "pending").reduce((acc, payment) => {
+    const dealer = payment.Dealer?.dealerName || "Dealer";
+    acc[dealer] = acc[dealer] || { dealer, amount: 0, invoices: 0 };
+    acc[dealer].amount += Number(payment.amount || 0);
+    acc[dealer].invoices += 1;
+    return acc;
+  }, {})).sort((a, b) => b.amount - a.amount).slice(0, 10);
+  const monthlyArea = payments.reduce((acc, payment) => {
+    const key = payment.createdAt ? new Date(payment.createdAt).toISOString().slice(0, 10) : "No date";
+    acc[key] = acc[key] || { date: key, paid: 0, pending: 0 };
+    if (payment.paymentStatus === "paid") acc[key].paid += Number(payment.amount || 0);
+    else acc[key].pending += Number(payment.amount || 0);
+    return acc;
+  }, {});
+  const cashOnline = [
+    { name: "Cash", value: stats.cashPayments || payments.filter((p) => p.paymentMethod === "cash").length, fill: "#0EA5E9" },
+    { name: "Online", value: stats.onlinePayments || payments.filter((p) => p.paymentMethod === "online").length, fill: "#4F46E5" },
+    { name: "Pending", value: stats.pendingPayments || payments.filter((p) => p.paymentStatus === "pending").length, fill: "#F59E0B" }
+  ];
+  const cards = [
+    ["Pending Payments", stats.pendingPayments ?? summary.pendingPayments ?? 0],
+    ["Paid Payments", stats.paidPayments ?? payments.filter((p) => p.paymentStatus === "paid").length],
+    ["Cash Payments", stats.cashPayments ?? payments.filter((p) => p.paymentMethod === "cash").length],
+    ["Online Payments", stats.onlinePayments ?? payments.filter((p) => p.paymentMethod === "online").length],
+    ["Total Pending", formatMoney(stats.totalPendingAmount ?? summary.totalPendingAmount ?? 0)],
+    ["Total Paid", formatMoney(stats.totalPaidAmount ?? summary.totalRevenue ?? 0)]
+  ];
+  return (
+    <div className="space-y-6">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{(cards.length ? cards : fallbackCards).map(([label, value]) => <Card key={label} label={label} value={value ?? 0} />)}</div>
+      <div className="grid gap-6 xl:grid-cols-2">
+        <Section title="Payment status bar graph">
+          <div className="h-80"><ResponsiveContainer><BarChart data={statusData}><CartesianGrid strokeDasharray="3 3" /><XAxis dataKey="status" /><YAxis allowDecimals={false} /><Tooltip /><Legend /><Bar dataKey="count" fill="#4F46E5" radius={[8, 8, 0, 0]} /></BarChart></ResponsiveContainer></div>
+        </Section>
+        <Section title="Payment method radial graph">
+          <div className="h-80"><ResponsiveContainer><RadialBarChart innerRadius="25%" outerRadius="90%" data={cashOnline} startAngle={90} endAngle={-270}><RadialBar dataKey="value" background cornerRadius={10} /><Tooltip /><Legend iconSize={10} /></RadialBarChart></ResponsiveContainer></div>
+        </Section>
+      </div>
+      <div className="grid gap-6 xl:grid-cols-2">
+        <Section title="Paid vs pending amount area graph">
+          <div className="h-80"><ResponsiveContainer><AreaChart data={Object.values(monthlyArea).sort((a, b) => a.date.localeCompare(b.date)).slice(-14)}><defs><linearGradient id="paidFinanceFill" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#16A34A" stopOpacity={0.45} /><stop offset="95%" stopColor="#16A34A" stopOpacity={0.05} /></linearGradient><linearGradient id="pendingFinanceFill" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#F59E0B" stopOpacity={0.45} /><stop offset="95%" stopColor="#F59E0B" stopOpacity={0.05} /></linearGradient></defs><CartesianGrid strokeDasharray="3 3" /><XAxis dataKey="date" /><YAxis /><Tooltip formatter={(value) => formatMoney(value)} /><Legend /><Area type="monotone" dataKey="paid" stroke="#16A34A" fill="url(#paidFinanceFill)" /><Area type="monotone" dataKey="pending" stroke="#F59E0B" fill="url(#pendingFinanceFill)" /></AreaChart></ResponsiveContainer></div>
+        </Section>
+        <Section title="Dealer-wise outstanding amount">
+          <div className="h-80"><ResponsiveContainer><BarChart data={dealerOutstanding}><CartesianGrid strokeDasharray="3 3" /><XAxis dataKey="dealer" /><YAxis /><Tooltip formatter={(value) => formatMoney(value)} /><Legend /><Bar dataKey="amount" fill="#0EA5E9" radius={[8, 8, 0, 0]} /></BarChart></ResponsiveContainer></div>
+        </Section>
+      </div>
+      <div className="grid gap-6 xl:grid-cols-2">
+        <MiniList title="Outstanding dealers" rows={dealerOutstanding} left="dealer" right="amount" prefix="Rs " />
+        <Recent title="Recent messages" rows={analytics?.recentMessages || []} primary={(row) => row.sender?.name || row.title || "Message"} secondary={(row) => `${row.sender?.role ? `${row.sender.role.replaceAll("_", " ")} - ` : ""}${row.message || row.title || ""}`} />
+      </div>
+    </div>
   );
 }
 
@@ -329,18 +464,18 @@ function AdminAnalytics({ analytics, fallbackCards }) {
         <Section title="Payment status ratio"><div className="h-72"><ResponsiveContainer><PieChart><Pie data={analytics.financeStats.paymentStatusRatio} dataKey="count" nameKey="status" outerRadius={90} label>{analytics.financeStats.paymentStatusRatio.map((entry, index) => <Cell key={entry.status} fill={["#F59E0B", "#16A34A", "#DC2626"][index]} />)}</Pie><Tooltip /></PieChart></ResponsiveContainer></div></Section>
       </div>
       <div className="grid gap-6 xl:grid-cols-2">
-        <MiniList title="Top 5 highest stock products" rows={analytics.inventoryStats.topHighestStockProducts} left="productName" right="quantity" />
-        <MiniList title="Top 5 low stock products" rows={analytics.inventoryStats.topLowStockProducts} left="productName" right="quantity" />
+        <MiniList title="Top 5 highest stock products" rows={(analytics.inventoryStats.topHighestStockProducts || []).map((row) => ({ ...row, productName: rowNameWithSku(row) }))} left="productName" right="quantity" />
+        <MiniList title="Top 5 low stock products" rows={(analytics.inventoryStats.topLowStockProducts || []).map((row) => ({ ...row, productName: rowNameWithSku(row) }))} left="productName" right="quantity" />
         <MiniList title="Dealer-wise outstanding payment" rows={analytics.financeStats.dealerWiseOutstandingPayment} left="dealerName" right="amount" prefix="Rs " />
         <MiniList title="Area-wise dealer count" rows={analytics.dealerStats.areaWiseDealerCount} left="area" right="count" />
-        <MiniList title="Top selling products" rows={analytics.salesStats?.topSellingProducts || []} left="productName" right="quantitySold" />
+        <MiniList title="Top selling products" rows={(analytics.salesStats?.topSellingProducts || []).map((row) => ({ ...row, productName: rowNameWithSku(row) }))} left="productName" right="quantitySold" />
         <MiniList title="Dealer sales performance" rows={analytics.salesStats?.dealerSalesPerformance || []} left="dealerName" right="quantitySold" />
       </div>
       <Section title="Dealer stock summary"><div className="h-72"><ResponsiveContainer><BarChart data={analytics.inventoryStats.dealerWiseStockSummary}><CartesianGrid strokeDasharray="3 3" /><XAxis dataKey="dealerName" /><YAxis /><Tooltip /><Bar dataKey="quantity" fill="#0E7490" /></BarChart></ResponsiveContainer></div></Section>
       <div className="grid gap-6 xl:grid-cols-2">
         <Recent title="Recent orders" rows={analytics.recentOrders} primary={(row) => row.orderNumber} secondary={(row) => `${row.status} | ${formatMoney(row.totalAmount)}`} />
-        <Recent title="Recent payments" rows={analytics.recentPayments} primary={(row) => row.Dealer?.dealerName || row.invoiceNumber || "Payment"} secondary={(row) => `${row.productSummary || row.Order?.items?.map((i) => `${i.Product?.productName} x ${i.quantity}`).join(", ") || row.paymentStatus} | ${formatMoney(row.amount)}`} />
-        <Recent title="Recent messages" rows={analytics.recentMessages} primary={(row) => row.title} secondary={(row) => row.message} />
+        <Recent title="Recent payments" rows={analytics.recentPayments} primary={(row) => row.Dealer?.dealerName || row.invoiceNumber || "Payment"} secondary={(row) => `${row.Order?.items?.map(orderItemLabel).join(", ") || row.productSummary || row.paymentStatus} | ${formatMoney(row.amount)}`} />
+        <Recent title="Recent messages" rows={analytics.recentMessages} primary={(row) => row.sender?.name || row.title || "Message"} secondary={(row) => `${row.sender?.role ? `${row.sender.role.replaceAll("_", " ")} - ` : ""}${row.message || row.title || ""}`} />
         <Recent title="Recent delivery updates" rows={analytics.recentDeliveryUpdates} primary={(row) => row.status} secondary={(row) => row.message} />
       </div>
     </div>
@@ -473,8 +608,20 @@ function FinanceMetric({ label, value, tone }) {
   return <div className={`rounded-md border bg-white p-5 shadow-soft ${statusBadgeClasses(tone)}`}><p className="text-sm">{label}</p><p className="mt-2 text-2xl font-semibold">{value ?? 0}</p></div>;
 }
 
+function fullVariantSku(product, variant) {
+  return [product.sku, variant.skuSuffix].filter(Boolean).join("-");
+}
+
 function ProductTable({ rows, onEdit, onDelete }) {
-  return <Section title="Company stock">{rows.length ? <div className="overflow-x-auto"><table className="w-full text-left text-sm"><thead className="bg-slate-50 text-slate-500"><tr>{["Photo", "Product", "SKU", "Category", "Description", "Price", "Coins", "Quantity", "Variants", "Status", "Actions"].map((h) => <th className="p-3" key={h}>{h}</th>)}</tr></thead><tbody>{rows.map((p, index) => <tr className={`border-t border-slate-100 transition hover:bg-slate-50 ${index % 2 ? "bg-stone-50/70" : "bg-white"}`} key={p.id}><td className="p-3">{p.image ? <img src={fileUrl(p.image)} alt={p.productName} className="h-12 w-12 rounded-md object-cover" /> : <div className="h-12 w-12 rounded-md bg-slate-100" />}</td><td className="p-3 font-semibold text-slate-900">{p.productName}</td><td>{p.sku}</td><td>{p.category}</td><td className="max-w-xs truncate">{p.description || "-"}</td><td>{formatMoney(p.price)}</td><td>{p.creditCoins || 0}</td><td><span className="rounded-full bg-indigo-50 px-2 py-1 text-xs font-semibold text-indigo-700">{p.quantity}</span></td><td className="max-w-xs">{(p.variants || []).map((v) => `${v.variantName}/${v.colorName}: ${v.stockQuantity}`).join(", ") || "-"}</td><td><StatusBadge value={p.status} /></td><td><div className="flex flex-nowrap gap-1"><button className="rounded-md border border-indigo-200 bg-white px-2 py-1 text-xs font-semibold text-indigo-700 hover:bg-indigo-50" onClick={() => onEdit(p)}>Edit</button><button className="rounded-md border border-rose-200 bg-white px-2 py-1 text-xs font-semibold text-rose-700 hover:bg-rose-50" onClick={() => onDelete(p)}>Delete</button></div></td></tr>)}</tbody></table></div> : <Empty />}</Section>;
+  const [selected, setSelected] = useState(null);
+  return (
+    <>
+      <Section title="Company stock">
+        {rows.length ? <div className="overflow-x-auto"><table className="w-full min-w-[1100px] text-left text-sm"><thead className="bg-slate-50 text-slate-500"><tr>{["Photo", "Product + SKU", "Category", "Description", "Price", "Quantity", "Variants with SKU", "Status", "Actions"].map((h) => <th className="p-3" key={h}>{h}</th>)}</tr></thead><tbody>{rows.map((p, index) => <tr className={`border-t border-slate-100 transition hover:bg-slate-50 ${index % 2 ? "bg-stone-50/70" : "bg-white"}`} key={p.id}><td className="p-3">{p.image ? <img src={fileUrl(p.image)} alt={p.productName} className="h-12 w-12 rounded-md object-cover" /> : <div className="h-12 w-12 rounded-md bg-slate-100" />}</td><td className="p-3"><button type="button" onClick={() => setSelected(p)} className="font-semibold text-indigo-700 hover:underline">{productNameWithSku(p)}</button><p className="mt-1 font-mono text-xs text-slate-500">Main SKU: {p.sku || "-"}</p><p className="mt-1 text-xs text-slate-500">{formatDate(p.manufacturingDate)} - {formatDate(p.expiryDate)}</p></td><td>{p.category || "-"}</td><td className="max-w-xs truncate">{p.description || "-"}</td><td>{formatMoney(p.price)}</td><td><span className="rounded-full bg-indigo-50 px-2 py-1 text-xs font-semibold text-indigo-700">{p.quantity}</span></td><td className="max-w-sm"><div className="space-y-1">{(p.variants || []).map((v) => <div key={v.id || v.skuSuffix} className="rounded-md bg-slate-50 px-2 py-1"><span className="font-semibold">{v.variantName}/{v.colorName}</span><span className="ml-2 font-mono text-xs text-indigo-700">{fullVariantSku(p, v)}</span><span className="ml-2 text-xs text-slate-500">{v.stockQuantity} qty</span></div>) || "-"}</div></td><td><StatusBadge value={p.status} /></td><td><div className="flex flex-nowrap gap-1"><button className="rounded-md border border-indigo-200 bg-white px-2 py-1 text-xs font-semibold text-indigo-700 hover:bg-indigo-50" onClick={() => onEdit(p)}>Edit</button><button className="rounded-md border border-rose-200 bg-white px-2 py-1 text-xs font-semibold text-rose-700 hover:bg-rose-50" onClick={() => onDelete(p)}>Delete</button></div></td></tr>)}</tbody></table></div> : <Empty />}
+      </Section>
+      {selected && <ProductDetailsModal product={selected} onClose={() => setSelected(null)} />}
+    </>
+  );
 }
 
 function VariantEditor({ rows, setRows }) {
@@ -489,17 +636,106 @@ function VariantEditor({ rows, setRows }) {
       </div>
       <div className="space-y-3">
         {rows.map((row, index) => (
-          <div key={index} className="grid gap-3 rounded-md bg-white p-3 md:grid-cols-6">
+          <div key={index} className="grid gap-3 rounded-md bg-white p-3 md:grid-cols-5">
             <TextField label="Variant name" value={row.variantName} onChange={(e) => update(index, "variantName", e.target.value)} required />
             <TextField label="Color name" value={row.colorName} onChange={(e) => update(index, "colorName", e.target.value)} required />
             <TextField label="Stock quantity" type="number" min="0" value={row.stockQuantity} onChange={(e) => update(index, "stockQuantity", e.target.value)} required />
             <TextField label="Price override" type="number" min="0" value={row.priceOverride} onChange={(e) => update(index, "priceOverride", e.target.value)} />
-            <TextField label="SKU suffix" value={row.skuSuffix} onChange={(e) => update(index, "skuSuffix", e.target.value)} />
             <div className="flex items-end"><Button type="button" variant="ghost" disabled={rows.length === 1} onClick={() => remove(index)}>Remove</Button></div>
           </div>
         ))}
       </div>
     </div>
+  );
+}
+
+function ProductModalShell({ title, onClose, children, footer }) {
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/55 p-4 backdrop-blur-sm">
+      <div className="max-h-[92vh] w-full max-w-5xl overflow-auto rounded-2xl bg-white shadow-2xl">
+        <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-200 bg-white px-5 py-4">
+          <h2 className="text-lg font-bold text-slate-950">{title}</h2>
+          <button type="button" onClick={onClose} className="rounded-md px-3 py-2 text-sm font-semibold text-slate-500 hover:bg-slate-100">Close</button>
+        </div>
+        <div className="p-5">{children}</div>
+        {footer && <div className="sticky bottom-0 flex flex-wrap justify-end gap-2 border-t border-slate-200 bg-white px-5 py-4">{footer}</div>}
+      </div>
+    </div>
+  );
+}
+
+function ProductDetailsModal({ product, onClose }) {
+  const detailRows = [
+    ["Car image / model", product.productName],
+    ["Main SKU", product.sku],
+    ["Manufacturing Date", formatDate(product.manufacturingDate)],
+    ["Expiry Date", formatDate(product.expiryDate)],
+    ["Category", product.category],
+    ["Description", product.description],
+    ["Price", formatMoney(product.price)],
+    ["Low Stock Limit", product.lowStockLimit],
+    ["Credit Coins", product.creditCoins || 0],
+    ["Available Stock", product.quantity || 0],
+    ["Status", product.status]
+  ];
+  return (
+    <ProductModalShell title={productNameWithSku(product)} onClose={onClose}>
+      <div className="grid gap-5 lg:grid-cols-[320px_1fr]">
+        {product.image ? <img src={fileUrl(product.image)} alt={product.productName} className="h-72 w-full rounded-xl object-cover" /> : <div className="grid h-72 w-full place-items-center rounded-xl bg-slate-100 text-sm font-semibold text-slate-400">No image</div>}
+        <div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            {detailRows.map(([label, value]) => <div key={label} className="rounded-xl border border-slate-200 bg-stone-50 p-3"><p className="text-xs font-bold uppercase tracking-wide text-slate-500">{label}</p><p className="mt-1 break-words font-semibold text-slate-900">{value ?? "-"}</p></div>)}
+          </div>
+          <div className="mt-5 rounded-xl border border-slate-200">
+            <div className="border-b border-slate-100 bg-slate-50 px-4 py-3 font-semibold">Variants and SKU numbers</div>
+            <div className="divide-y divide-slate-100">
+              {(product.variants || []).map((variant) => <div key={variant.id || variant.skuSuffix} className="grid gap-2 px-4 py-3 text-sm md:grid-cols-5"><span className="font-semibold">{variant.variantName}</span><span>{variant.colorName}</span><span className="font-mono text-xs text-indigo-700">{fullVariantSku(product, variant)}</span><span>{variant.stockQuantity} stock</span><StatusBadge value={variant.status} /></div>)}
+            </div>
+          </div>
+        </div>
+      </div>
+    </ProductModalShell>
+  );
+}
+
+function ProductEditModal({ product, onClose, onSave }) {
+  const [form, setForm] = useState({
+    id: product.id,
+    productName: product.productName || "",
+    category: product.category || "",
+    description: product.description || "",
+    manufacturingDate: product.manufacturingDate || "",
+    expiryDate: product.expiryDate || "",
+    price: product.price || 0,
+    creditCoins: product.creditCoins || 0,
+    status: product.status || "active",
+    variants: (product.variants || []).map((variant) => ({ ...variant, priceOverride: variant.priceOverride ?? "" })),
+    image: product.image || "",
+    imageFile: null
+  });
+  const [preview, setPreview] = useState(product.image ? fileUrl(product.image) : "");
+  const update = (key, value) => setForm((current) => ({ ...current, [key]: value }));
+  const updateVariant = (index, key, value) => update("variants", form.variants.map((row, i) => i === index ? { ...row, [key]: value } : row));
+  const addVariant = () => update("variants", [...form.variants, { variantName: "", colorName: "", stockQuantity: 0, priceOverride: "", status: "active" }]);
+  return (
+    <ProductModalShell title={`Edit ${productNameWithSku(product)}`} onClose={onClose} footer={<><Button variant="ghost" onClick={onClose}>Cancel</Button><Button onClick={() => onSave(form)}>Save Product</Button></>}>
+      <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm font-semibold text-amber-800">SKU is locked and will not change: <span className="font-mono">{product.sku}</span></div>
+      <div className="grid gap-4 md:grid-cols-2">
+        <TextField label="Product name" value={form.productName} onChange={(e) => update("productName", e.target.value)} required />
+        <TextField label="Category" value={form.category} onChange={(e) => update("category", e.target.value)} />
+        <TextField label="Manufacturing date" type="date" value={form.manufacturingDate || ""} onChange={(e) => update("manufacturingDate", e.target.value)} />
+        <TextField label="Expiry date" type="date" value={form.expiryDate || ""} onChange={(e) => update("expiryDate", e.target.value)} />
+        <TextField label="Price" type="number" min="0" value={form.price} onChange={(e) => update("price", e.target.value)} />
+        <TextField label="Credit coins" type="number" min="0" value={form.creditCoins} onChange={(e) => update("creditCoins", e.target.value)} />
+        <label className="text-sm font-semibold text-slate-600">Status toggle<button type="button" onClick={() => update("status", form.status === "active" ? "inactive" : "active")} className={`mt-1 flex h-11 w-full items-center justify-between rounded-full border px-4 text-sm font-bold ${form.status === "active" ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-slate-200 bg-slate-100 text-slate-600"}`}><span>{form.status === "active" ? "Active" : "Inactive"}</span><span className={`h-6 w-11 rounded-full p-1 ${form.status === "active" ? "bg-emerald-500" : "bg-slate-400"}`}><span className={`block h-4 w-4 rounded-full bg-white transition ${form.status === "active" ? "translate-x-5" : ""}`} /></span></button></label>
+        <div><FileUploadPreview label="Product photo" preview={preview} accept="image/*" onChange={(e) => { const file = e.target.files?.[0]; if (!file) return; update("imageFile", file); setPreview(URL.createObjectURL(file)); }} /></div>
+        <label className="md:col-span-2 text-sm font-semibold text-slate-600">Description<textarea className="mt-1 min-h-28 w-full rounded-md border border-slate-200 p-3 text-sm" value={form.description} onChange={(e) => update("description", e.target.value)} /></label>
+      </div>
+      <div className="mt-5 rounded-xl border border-slate-200 bg-slate-50 p-4">
+        <div className="mb-3 flex items-center justify-between gap-3"><p className="font-semibold text-slate-900">Variants</p><Button type="button" variant="ghost" onClick={addVariant}><Plus size={16} /> Add Variant</Button></div>
+        <div className="space-y-3">{form.variants.map((variant, index) => <div key={variant.id || index} className="grid gap-3 rounded-md bg-white p-3 md:grid-cols-6"><TextField label="Variant name" value={variant.variantName || ""} onChange={(e) => updateVariant(index, "variantName", e.target.value)} /><TextField label="Color" value={variant.colorName || ""} onChange={(e) => updateVariant(index, "colorName", e.target.value)} /><TextField label="Stock" type="number" min="0" value={variant.stockQuantity || 0} onChange={(e) => updateVariant(index, "stockQuantity", e.target.value)} /><TextField label="Price override" type="number" min="0" value={variant.priceOverride || ""} onChange={(e) => updateVariant(index, "priceOverride", e.target.value)} /><div><p className="text-sm font-semibold text-slate-600">Variant SKU</p><p className="mt-2 rounded-md bg-slate-100 px-3 py-2 font-mono text-xs text-slate-700">{fullVariantSku(product, variant)}</p></div><div className="flex items-end"><button type="button" onClick={() => updateVariant(index, "status", variant.status === "active" ? "inactive" : "active")} className={`rounded-full px-3 py-2 text-xs font-bold ${variant.status === "active" ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-600"}`}>{variant.status === "active" ? "Active" : "Inactive"}</button></div></div>)}</div>
+      </div>
+    </ProductModalShell>
   );
 }
 
@@ -527,7 +763,7 @@ function DealerPerformancePanel({ data = {}, filters, setFilters, reload, produc
           <label className="block"><span className="text-sm font-semibold text-slate-600">Dealer</span><select className="mt-1 w-full rounded-md border border-slate-200 px-3 py-2 text-sm" value={filters.dealerId} onChange={(e) => set("dealerId", e.target.value)}><option value="">Select dealer</option>{dealers.map((dealer) => <option key={dealer.id} value={dealer.id}>{dealer.dealerName}</option>)}</select></label>
           <TextField label="Start Date" type="date" value={filters.startDate} onChange={(e) => set("startDate", e.target.value)} />
           <TextField label="End Date" type="date" value={filters.endDate} onChange={(e) => set("endDate", e.target.value)} />
-          <label className="block"><span className="text-sm font-semibold text-slate-600">Product</span><select className="mt-1 w-full rounded-md border border-slate-200 px-3 py-2 text-sm" value={filters.productId} onChange={(e) => set("productId", e.target.value)}><option value="">All products</option>{products.map((p) => <option key={p.id} value={p.id}>{p.productName}</option>)}</select></label>
+          <label className="block"><span className="text-sm font-semibold text-slate-600">Product</span><select className="mt-1 w-full rounded-md border border-slate-200 px-3 py-2 text-sm" value={filters.productId} onChange={(e) => set("productId", e.target.value)}><option value="">All products</option>{products.map((p) => <option key={p.id} value={p.id}>{productNameWithSku(p)}</option>)}</select></label>
           <label className="block"><span className="text-sm font-semibold text-slate-600">Payment</span><select className="mt-1 w-full rounded-md border border-slate-200 px-3 py-2 text-sm" value={filters.paymentStatus} onChange={(e) => set("paymentStatus", e.target.value)}><option value="">All</option><option value="paid">Paid</option><option value="pending">Unpaid/Pending</option><option value="cash">Cash</option><option value="online">Online</option></select></label>
         </div>
         {filters.dealerId && <p className="mt-4 text-sm font-semibold text-slate-700">{(() => { const dealer = dealers.find((d) => String(d.id) === String(filters.dealerId)); return dealer ? `${dealer.dealerName} - ${[dealer.area, dealer.city, dealer.pincode].filter(Boolean).join(", ")}` : ""; })()}</p>}
@@ -543,8 +779,8 @@ function DealerPerformancePanel({ data = {}, filters, setFilters, reload, produc
       </div>
       <div className="grid gap-6 xl:grid-cols-2">
         <SimpleTable title="Recent orders" rows={(tables.recentOrders || []).map((o) => ({ order: o.orderNumber, dealer: o.Dealer?.dealerName, status: o.status, amount: formatMoney(o.totalAmount) }))} cols={["order", "dealer", "status", "amount"]} />
-        <SimpleTable title="Recent payments" rows={(tables.recentPayments || []).map((p) => ({ dealer: p.Dealer?.dealerName || "Dealer", products: p.productSummary || p.Order?.items?.map((i) => `${i.Product?.productName} x ${i.quantity}`).join(", ") || "-", amount: formatMoney(p.amount), method: p.paymentMethod || "-", status: p.paymentStatus, date: p.paidAt ? new Date(p.paidAt).toLocaleString() : new Date(p.createdAt).toLocaleString() }))} cols={["dealer", "products", "amount", "method", "status", "date"]} />
-        <SimpleTable title="Recent sales" rows={(tables.recentSales || []).map((s) => ({ product: s.Product?.productName, variant: s.variantName || "-", color: s.colorName || "-", quantity: s.quantitySold }))} cols={["product", "variant", "color", "quantity"]} />
+        <SimpleTable title="Recent payments" rows={(tables.recentPayments || []).map((p) => ({ dealer: p.Dealer?.dealerName || "Dealer", products: p.Order?.items?.map(orderItemLabel).join(", ") || p.productSummary || "-", amount: formatMoney(p.amount), method: p.paymentMethod || "-", status: p.paymentStatus, date: p.paidAt ? new Date(p.paidAt).toLocaleString() : new Date(p.createdAt).toLocaleString() }))} cols={["dealer", "products", "amount", "method", "status", "date"]} />
+        <SimpleTable title="Recent sales" rows={(tables.recentSales || []).map((s) => ({ product: productNameWithSku(s.Product, s.ProductVariant || s), variant: s.variantName || "-", color: s.colorName || "-", quantity: s.quantitySold }))} cols={["product", "variant", "color", "quantity"]} />
         <SimpleTable title="Recent redemptions" rows={(tables.recentRedemptions || []).map((r) => ({ dealer: r.Dealer?.dealerName || "Dealer", reward: r.reward?.title || "-", coins: r.coinsUsed, status: r.status, requested: r.requestedAt ? new Date(r.requestedAt).toLocaleString() : new Date(r.createdAt).toLocaleString(), expectedProvideDate: r.expectedProvideDate || "-" }))} cols={["dealer", "reward", "coins", "status", "requested", "expectedProvideDate"]} />
       </div>
     </div>
@@ -599,11 +835,11 @@ function AdminDealerSales({ data = {} }) {
         <Card label="Active Dealers" value={(stats.dealerPerformance || []).length} />
       </div>
       <div className="grid gap-6 xl:grid-cols-2">
-        <MiniList title="Top selling products" rows={stats.topProducts || []} left="productName" right="quantitySold" />
+        <MiniList title="Top selling products" rows={(stats.topProducts || []).map((row) => ({ ...row, productName: rowNameWithSku(row) }))} left="productName" right="quantitySold" />
         <MiniList title="Dealer sales performance" rows={stats.dealerPerformance || []} left="dealerName" right="quantitySold" />
       </div>
       <Section title="Dealer sales records">
-        {rows.length ? <div className="overflow-x-auto"><table className="w-full text-left text-sm"><thead className="bg-slate-50 text-slate-500"><tr>{["Date", "Dealer", "Product", "Quantity", "Stock Before", "Stock After", "Remarks", "Created"].map((h) => <th className="p-3" key={h}>{h}</th>)}</tr></thead><tbody>{rows.map((sale) => <tr className="border-t border-slate-100" key={sale.id}><td className="p-3">{sale.saleDate}</td><td>{sale.Dealer?.dealerName || `Dealer #${sale.dealerId}`}</td><td><div className="flex items-center gap-2">{sale.Product?.image && <img src={fileUrl(sale.Product.image)} alt="" className="h-9 w-9 rounded-md object-cover" />}<span>{sale.Product?.productName}</span></div></td><td>{sale.quantitySold}</td><td>{sale.stockBefore}</td><td>{sale.stockAfter}</td><td>{sale.remarks || "-"}</td><td>{new Date(sale.createdAt).toLocaleString()}</td></tr>)}</tbody></table></div> : <Empty text="No dealer sales recorded yet" />}
+        {rows.length ? <div className="overflow-x-auto"><table className="w-full text-left text-sm"><thead className="bg-slate-50 text-slate-500"><tr>{["Date", "Dealer", "Product + SKU", "Quantity", "Stock Before", "Stock After", "Remarks", "Created"].map((h) => <th className="p-3" key={h}>{h}</th>)}</tr></thead><tbody>{rows.map((sale) => <tr className="border-t border-slate-100" key={sale.id}><td className="p-3">{sale.saleDate}</td><td>{sale.Dealer?.dealerName || `Dealer #${sale.dealerId}`}</td><td><div className="flex items-center gap-2">{sale.Product?.image && <img src={fileUrl(sale.Product.image)} alt="" className="h-9 w-9 rounded-md object-cover" />}<span>{productNameWithSku(sale.Product, sale.ProductVariant || sale)}<span className="block text-xs text-slate-500">{sale.variantName ? `${sale.variantName} / ${sale.colorName || "-"}` : "Standard"}</span></span></div></td><td>{sale.quantitySold}</td><td>{sale.stockBefore}</td><td>{sale.stockAfter}</td><td>{sale.remarks || "-"}</td><td>{new Date(sale.createdAt).toLocaleString()}</td></tr>)}</tbody></table></div> : <Empty text="No dealer sales recorded yet" />}
       </Section>
     </div>
   );
@@ -616,9 +852,23 @@ function InternalUpdates({ data = {}, filter, setFilter, markRead, markAll }) {
   return (
     <Section title="Internal Updates" actions={<Button variant="ghost" onClick={markAll}>Mark all as read</Button>}>
       <div className="mb-4 flex flex-wrap gap-2">{["all", "unread", "read", "low_stock"].map((f) => <button key={f} onClick={() => setFilter(f)} className={`rounded-full px-3 py-1 text-sm font-semibold ${filter === f ? "bg-brand text-white" : "bg-slate-100 text-slate-600"}`}>{f.replaceAll("_", " ")}</button>)}</div>
-      {visible.length ? <div className="space-y-3">{visible.map((n) => <div key={n.id} className={`rounded-md border p-4 ${n.type === "LOW_STOCK" ? "border-yellow-200 bg-yellow-50" : n.type === "PAYMENT" ? "border-blue-200 bg-blue-50" : "border-slate-200 bg-white"}`}><div className="flex flex-wrap items-start justify-between gap-3"><div><div className="flex flex-wrap gap-2"><NotificationBadge value={n.isRead ? "Read" : "Unread"} />{["LOW_STOCK", "PAYMENT", "SALES_UPDATE"].includes(n.type) && <NotificationBadge value={n.type} />}</div><p className="mt-2 font-semibold text-slate-900">{n.title}</p><p className="mt-1 text-sm leading-6 text-slate-600">{n.message}</p><p className="mt-2 text-xs text-slate-500">{new Date(n.createdAt).toLocaleString()}</p></div>{!n.isRead && <Button variant="ghost" onClick={() => markRead(n.id)}>Mark read</Button>}</div></div>)}</div> : <Empty text="No internal updates found" />}
+      {visible.length ? <div className="space-y-3">{visible.map((n) => <div key={n.id} className={`rounded-md border p-4 ${n.type === "LOW_STOCK" ? "border-yellow-200 bg-yellow-50" : n.type === "PAYMENT" ? "border-blue-200 bg-blue-50" : "border-slate-200 bg-white"}`}><div className="flex flex-wrap items-start justify-between gap-3"><div><div className="flex flex-wrap gap-2"><NotificationBadge value={n.isRead ? "Read" : "Unread"} />{["LOW_STOCK", "PAYMENT", "SALES_UPDATE"].includes(n.type) && <NotificationBadge value={n.type} />}</div><p className="mt-2 font-semibold text-slate-900">{n.title}</p><p className="mt-1 text-sm leading-6 text-slate-600">{n.message}</p><NotificationMeta notification={n} /><p className="mt-2 text-xs text-slate-500">{new Date(n.createdAt).toLocaleString()}</p></div>{!n.isRead && <Button variant="ghost" onClick={() => markRead(n.id)}>Mark read</Button>}</div></div>)}</div> : <Empty text="No internal updates found" />}
     </Section>
   );
+}
+
+function NotificationMeta({ notification }) {
+  const meta = notification.metadata || {};
+  const rows = [
+    ["Product", meta.productName],
+    ["Organization", meta.organizationName || meta.companyName],
+    ["Dealer", meta.dealerName],
+    ["Order", meta.orderNumber],
+    ["Current Stock", meta.stockAfter],
+    ["Low Stock Limit", meta.lowStockLimit]
+  ].filter(([, value]) => value !== undefined && value !== null && value !== "");
+  if (!rows.length) return null;
+  return <div className="mt-3 flex flex-wrap gap-2">{rows.map(([label, value]) => <span key={label} className="rounded-full border border-white/70 bg-white/70 px-2.5 py-1 text-xs font-semibold text-slate-700">{label}: {value}</span>)}</div>;
 }
 
 function NotificationBadge({ value }) {
@@ -628,15 +878,39 @@ function NotificationBadge({ value }) {
 }
 
 function InventoryBoard({ products = [], dealerStock = [] }) {
+  const [selectedProduct, setSelectedProduct] = useState(null);
   const lowStock = products.filter((p) => Number(p.quantity) <= Number(p.lowStockLimit || 0));
   const topStock = [...products].sort((a, b) => Number(b.quantity || 0) - Number(a.quantity || 0)).slice(0, 6);
+  const totalStock = products.reduce((sum, product) => sum + Number(product.quantity || 0), 0);
   return (
     <div className="space-y-6">
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <Card label="Company Products" value={products.length} />
+        <Card label="Company Stock" value={totalStock} />
         <Card label="Low Stock Products" value={lowStock.length} />
         <Card label="Dealer Stock Rows" value={dealerStock.length} />
       </div>
+      <Section title="Company stock inventory" actions={<span className="rounded-full bg-indigo-50 px-3 py-1 text-xs font-bold text-indigo-700">Click any product for full details</span>}>
+        {products.length ? <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{products.map((product) => {
+          const qty = Number(product.quantity || 0);
+          const limit = Number(product.lowStockLimit || 0);
+          const stockStatus = qty === 0 ? "Out of Stock" : qty <= limit ? "Low Stock" : "In Stock";
+          return (
+            <button key={product.id} type="button" onClick={() => setSelectedProduct(product)} className="group rounded-2xl border border-slate-200 bg-white p-4 text-left shadow-card transition hover:-translate-y-1 hover:border-indigo-200 hover:shadow-card-hover">
+              <div className="flex gap-4">
+                {product.image ? <img src={fileUrl(product.image)} alt={product.productName} className="h-20 w-24 rounded-xl object-cover" /> : <div className="grid h-20 w-24 place-items-center rounded-xl bg-slate-100 text-xs font-semibold text-slate-400">No image</div>}
+                <div className="min-w-0 flex-1">
+                  <p className="truncate font-bold text-slate-950 group-hover:text-indigo-700">{productNameWithSku(product)}</p>
+                  <p className="mt-1 truncate font-mono text-xs text-indigo-700">SKU: {product.sku || "-"}</p>
+                  <p className="mt-1 text-xs text-slate-500">{product.category || "Uncategorized"}</p>
+                  <div className="mt-2 flex flex-wrap items-center gap-2"><StatusBadge value={stockStatus} /><span className="rounded-full bg-slate-100 px-2 py-1 text-xs font-bold text-slate-700">{qty} in company stock</span></div>
+                </div>
+              </div>
+              {(product.variants || []).length > 0 && <p className="mt-3 line-clamp-2 text-xs text-slate-500">{product.variants.map((variant) => `${variant.variantName}/${variant.colorName}: ${fullVariantSku(product, variant)}`).join(", ")}</p>}
+            </button>
+          );
+        })}</div> : <Empty text="No company stock products found" />}
+      </Section>
       <div className="grid gap-6 xl:grid-cols-2">
         <Section title="Low stock attention">
           {lowStock.length ? <div className="space-y-3">{lowStock.map((p) => <StockHealth key={p.id} product={p} />)}</div> : <Empty text="No low stock products" />}
@@ -651,7 +925,7 @@ function InventoryBoard({ products = [], dealerStock = [] }) {
         return {
           dealer: s.Dealer?.dealerName || "Dealer",
           location: [s.Dealer?.area, s.Dealer?.city].filter(Boolean).join(", "),
-          product: s.Product?.productName,
+          product: productNameWithSku(s.Product, s.ProductVariant || s),
           variant: s.variantName || "-",
           color: s.colorName || "-",
           quantity: qty,
@@ -659,6 +933,7 @@ function InventoryBoard({ products = [], dealerStock = [] }) {
           status: qty === 0 ? "Out of Stock" : qty <= limit ? "Low Stock" : "In Stock"
         };
       })} cols={["dealer", "location", "product", "variant", "color", "quantity", "lowStockLimit", "status"]} />
+      {selectedProduct && <ProductDetailsModal product={selectedProduct} onClose={() => setSelectedProduct(null)} />}
     </div>
   );
 }
@@ -672,8 +947,8 @@ function StockHealth({ product }) {
     <div className="rounded-md border border-slate-200 p-4">
       <div className="flex items-center justify-between gap-3">
         <div>
-          <p className="font-semibold text-slate-900">{product.productName}</p>
-          <p className="text-xs text-slate-500">SKU {product.sku || "-"} | Limit {limit}</p>
+          <p className="font-semibold text-slate-900">{productNameWithSku(product)}</p>
+          <p className="text-xs text-slate-500">Main SKU {product.sku || "-"} | Limit {limit}</p>
         </div>
         <StatusBadge value={low ? "low" : "active"} />
       </div>
@@ -685,13 +960,24 @@ function StockHealth({ product }) {
   );
 }
 
-function DeliveryManagement({ rows = [], updateOrder }) {
+function PaginationControls({ page, setPage, totalPages, totalItems, pageSize }) {
+  const start = totalItems ? (page - 1) * pageSize + 1 : 0;
+  const end = Math.min(page * pageSize, totalItems);
+  return <div className="mt-4 flex flex-col gap-3 border-t border-slate-100 pt-4 sm:flex-row sm:items-center sm:justify-between"><p className="text-sm font-semibold text-slate-500">Showing {start}-{end} of {totalItems}</p><div className="flex items-center gap-2"><Button variant="ghost" disabled={page <= 1} onClick={() => setPage(page - 1)}>Previous</Button><span className="rounded-md bg-slate-100 px-3 py-2 text-sm font-bold text-slate-700">{page} / {totalPages}</span><Button variant="ghost" disabled={page >= totalPages} onClick={() => setPage(page + 1)}>Next</Button></div></div>;
+}
+
+function DeliveryManagement({ rows = [], updateOrder, filter = "all", setFilter, page = 1, setPage }) {
   const next = { approved: "packing", packing: "shipping", shipping: "out_for_delivery", out_for_delivery: "delivered" };
   const dealerTitle = (order) => `${order.Dealer?.dealerName || "Dealer"}${order.Dealer?.area || order.Dealer?.city ? ` - ${[order.Dealer?.area, order.Dealer?.city].filter(Boolean).join(", ")}` : ""}`;
-  const products = (order) => order.items?.map((i) => `${i.Product?.productName || "Product"}${i.variantName ? ` - ${i.variantName}/${i.colorName}` : ""} x ${i.quantity}`).join(", ");
+  const products = (order) => order.items?.map(orderItemLabel).join(", ");
+  const pageSize = 8;
+  const filtered = rows.filter((order) => filter === "all" || order.status === filter);
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const safePage = Math.min(page, totalPages);
+  const visible = filtered.slice((safePage - 1) * pageSize, safePage * pageSize);
   return (
-    <Section title="Delivery management">
-      {rows.length ? <div className="grid gap-4 xl:grid-cols-2">{rows.map((order) => (
+    <Section title="Delivery management" actions={<div className="flex flex-wrap gap-2">{["all", "approved", "packing", "shipping", "out_for_delivery", "delivered"].map((status) => <button key={status} onClick={() => { setFilter(status); setPage(1); }} className={`rounded-full px-3 py-1 text-sm font-semibold ${filter === status ? "bg-brand text-white" : "bg-slate-100 text-slate-600"}`}>{status.replaceAll("_", " ")}</button>)}</div>}>
+      {visible.length ? <><div className="grid gap-4 xl:grid-cols-2">{visible.map((order) => (
         <div key={order.id} className="rounded-md border border-slate-200 bg-white p-4 shadow-soft">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
@@ -706,7 +992,7 @@ function DeliveryManagement({ rows = [], updateOrder }) {
             {order.status === "delivered" ? <span className="rounded-md bg-green-50 px-3 py-2 text-sm font-semibold text-green-700">Delivered</span> : <Button onClick={() => updateOrder(order.id, next[order.status])}>Mark as {next[order.status]?.replaceAll("_", " ")}</Button>}
           </div>
         </div>
-      ))}</div> : <Empty text="No approved deliveries yet" />}
+      ))}</div><PaginationControls page={safePage} setPage={setPage} totalPages={totalPages} totalItems={filtered.length} pageSize={pageSize} /></> : <Empty text="No deliveries match this filter" />}
     </Section>
   );
 }
@@ -796,7 +1082,7 @@ function AdminCeoReadOnlyOverview({ endpoint, type }) {
         <>
           <SimpleTable title="Top Selling Products" rows={payload.topSellingProducts || []} cols={["productName", "stock", "soldQuantity", "revenue", "creditCoins", "status"]} />
           <SimpleTable title="Low Selling Products" rows={payload.lowSellingProducts || []} cols={["productName", "stock", "soldQuantity", "revenue", "creditCoins", "status"]} />
-          <SimpleTable title="Product Stock & Revenue" rows={(payload.products || []).map((p) => ({ ...p, actions: p }))} cols={["productName", "sku", "category", "stock", "soldQuantity", "revenue", "creditCoins", "status", "actions"]} renderCell={(row, col) => col === "actions" ? <div className="flex flex-nowrap gap-2"><button className="whitespace-nowrap rounded-md bg-indigo-600 px-2.5 py-1 text-xs font-semibold text-white" onClick={() => alert(`${row.productName}\nSKU: ${row.sku}\nStock: ${row.stock}`)}>View</button><button className={`whitespace-nowrap rounded-md px-2.5 py-1 text-xs font-semibold text-white ${row.status === "active" ? "bg-rose-600" : "bg-emerald-600"}`} onClick={() => controlProduct(row.actions)}>{row.status === "active" ? "Disband Product" : "Reactivate"}</button></div> : String(row[col] ?? "")} />
+          <SimpleTable title="Product Stock & Revenue" rows={(payload.products || []).map((p) => ({ ...p, actions: p, productName: rowNameWithSku(p) }))} cols={["productName", "category", "stock", "soldQuantity", "revenue", "creditCoins", "status", "actions"]} renderCell={(row, col) => col === "actions" ? <div className="flex flex-nowrap gap-2"><button className="whitespace-nowrap rounded-md bg-indigo-600 px-2.5 py-1 text-xs font-semibold text-white" onClick={() => alert(`${row.productName}\nStock: ${row.stock}`)}>View</button><button className={`whitespace-nowrap rounded-md px-2.5 py-1 text-xs font-semibold text-white ${row.status === "active" ? "bg-rose-600" : "bg-emerald-600"}`} onClick={() => controlProduct(row.actions)}>{row.status === "active" ? "Disband Product" : "Reactivate"}</button></div> : String(row[col] ?? "")} />
         </>
       )}
       {type === "orders" && (
@@ -845,7 +1131,7 @@ function orderRow(order) {
   return {
     dealer: order.Dealer?.dealerName || "-",
     location: [order.Dealer?.area, order.Dealer?.city].filter(Boolean).join(", "),
-    products: order.items?.map((item) => `${item.Product?.productName || "Product"} x ${item.quantity}`).join(", "),
+    products: order.items?.map(orderItemLabel).join(", "),
     amount: formatMoney(order.totalAmount),
     status: order.status,
     orderDate: order.createdAt,
@@ -935,6 +1221,7 @@ function AdminPinnedMessages() {
 }
 
 function AdminTeamChat() {
+  const { user } = useAuth();
   const [users, setUsers] = useState([]);
   const [selected, setSelected] = useState(null);
   const [messages, setMessages] = useState([]);
@@ -950,9 +1237,15 @@ function AdminTeamChat() {
     setMessages(data);
   };
   return (
-    <div className="grid gap-4 lg:grid-cols-[280px_1fr]">
-      <Section title="Team Members">{users.map((u) => <button key={u.id} onClick={() => setSelected(u)} className={`mb-2 w-full rounded-md px-3 py-2 text-left text-sm ${selected?.id === u.id ? "bg-cyan-50 text-brand" : "hover:bg-slate-50"}`}><span className="block font-semibold">{u.name}</span><span className="block text-xs text-slate-500">{u.role.replaceAll("_", " ")}</span></button>)}</Section>
-      <Section title={selected ? `Internal Team Chat - ${selected.name}` : "Internal Team Chat"}>{selected ? <><div className="mb-4 h-80 space-y-3 overflow-y-auto rounded-md bg-slate-50 p-4">{messages.map((m) => <div key={m.id} className="rounded-md border border-slate-200 bg-white px-3 py-2 text-sm"><p className="font-semibold text-slate-700">{m.sender?.name}</p><p>{m.message}</p><p className="mt-1 text-[11px] text-slate-400">{new Date(m.createdAt).toLocaleString()}</p></div>)}</div><form onSubmit={send} className="flex gap-2"><input className="flex-1 rounded-md border border-slate-300 px-3 py-2" value={text} onChange={(e) => setText(e.target.value)} placeholder="Type a message" required /><Button>Send</Button></form></> : <Empty text="Select a team member" />}</Section>
+    <div className="grid gap-4 lg:grid-cols-[320px_1fr]">
+      <Section title="Team members">
+        <div className="space-y-2">
+          {users.map((u) => <button key={u.id} onClick={() => setSelected(u)} className={`w-full rounded-xl border px-3 py-3 text-left text-sm transition ${selected?.id === u.id ? "border-indigo-200 bg-indigo-50 shadow-sm" : "border-slate-200 bg-white hover:border-indigo-100 hover:bg-slate-50"}`}><span className="flex items-center gap-3"><span className="grid h-10 w-10 place-items-center rounded-full bg-gradient-to-br from-indigo-500 to-blue-600 text-sm font-bold text-white">{(u.name || "?").slice(0, 1).toUpperCase()}</span><span className="min-w-0"><span className="block truncate font-semibold text-slate-900">{u.name}</span><span className="block truncate text-xs text-slate-500">{u.role.replaceAll("_", " ")}</span></span></span></button>)}
+        </div>
+      </Section>
+      <Section title={selected ? `Internal team chat - ${selected.name}` : "Internal team chat"}>
+        {selected ? <><div className="mb-4 h-[28rem] space-y-3 overflow-y-auto rounded-2xl border border-slate-200 bg-gradient-to-b from-slate-50 to-white p-4">{messages.length ? messages.map((m) => { const mine = Number(m.senderId) === Number(user?.id); return <div key={m.id} className={`flex ${mine ? "justify-end" : "justify-start"}`}><div className={`max-w-[78%] rounded-2xl px-4 py-3 text-sm shadow-sm ${mine ? "bg-indigo-600 text-white" : "border border-slate-200 bg-white text-slate-800"}`}><p className={`mb-1 text-xs font-bold ${mine ? "text-indigo-100" : "text-slate-500"}`}>{mine ? "You" : m.sender?.name || "Team member"}</p><p className="leading-6">{m.message}</p><p className={`mt-2 text-[11px] ${mine ? "text-indigo-100" : "text-slate-400"}`}>{new Date(m.createdAt).toLocaleString()}</p></div></div>; }) : <Empty text="No messages yet. Start the conversation." />}</div><form onSubmit={send} className="flex gap-2 rounded-2xl border border-slate-200 bg-white p-2 shadow-sm"><input className="flex-1 rounded-xl border-0 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-indigo-100" value={text} onChange={(e) => setText(e.target.value)} placeholder={`Message ${selected.name}`} required /><Button>Send</Button></form></> : <Empty text="Select a team member to open chat" />}
+      </Section>
     </div>
   );
 }
@@ -1000,20 +1293,117 @@ function LicenseUpgrade({ status, requestLicense }) {
   );
 }
 
-function OrderTable({ rows, updateOrder, approveOrder, schedules, setSchedules }) {
+function OrderTable({ rows, updateOrder, approveOrder, schedules, setSchedules, filter = "all", setFilter, page = 1, setPage }) {
   const setSchedule = (id, key, value) => setSchedules({ ...schedules, [id]: { ...(schedules[id] || {}), [key]: value } });
   const dealerTitle = (order) => `${order.Dealer?.dealerName || "Dealer"}${order.Dealer?.area || order.Dealer?.city ? ` - ${[order.Dealer?.area, order.Dealer?.city].filter(Boolean).join(", ")}` : ""}`;
-  return <Section title="Order & delivery management">{rows.length ? <div className="space-y-4">{rows.map((o) => {
+  const pageSize = 10;
+  const filtered = rows.filter((order) => filter === "all" || order.status === filter);
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const safePage = Math.min(page, totalPages);
+  const visible = filtered.slice((safePage - 1) * pageSize, safePage * pageSize);
+  return <Section title="Order & delivery management" actions={<div className="flex flex-wrap gap-2">{["all", "pending", "approved", "packing", "shipping", "out_for_delivery", "delivered", "rejected"].map((status) => <button key={status} onClick={() => { setFilter(status); setPage(1); }} className={`rounded-full px-3 py-1 text-sm font-semibold ${filter === status ? "bg-brand text-white" : "bg-slate-100 text-slate-600"}`}>{status.replaceAll("_", " ")}</button>)}</div>}>{visible.length ? <><div className="space-y-4">{visible.map((o) => {
     const schedule = schedules[o.id] || {};
     const ready = schedule.packingDate && schedule.shippingDate && schedule.outForDeliveryDate && schedule.deliveredDate;
-    return <div key={o.id} className="rounded-md border border-slate-200 p-4"><div className="flex flex-wrap items-start justify-between gap-3"><div><p className="font-semibold">{dealerTitle(o)} · {formatMoney(o.totalAmount)}</p><p className="text-sm text-slate-500">Order Date: {new Date(o.createdAt).toLocaleDateString()} · {o.status}</p><p className="mt-1 text-xs text-slate-400">Reference: {o.orderNumber}</p></div><div className="flex flex-wrap gap-2">{o.status === "pending" ? <><Button disabled={!ready} onClick={() => approveOrder(o.id)}>Approve Order</Button><Button variant="ghost" onClick={() => updateOrder(o.id, "rejected")}>Reject</Button></> : <StatusBadge value={o.status} />}</div></div><div className="mt-3 text-sm font-semibold text-slate-700">{o.items?.map((i) => `${i.Product?.productName}${i.variantName ? ` - ${i.variantName}/${i.colorName}` : ""} x ${i.quantity}`).join(", ")}</div>{o.status === "pending" && <div className="mt-4 grid gap-3 md:grid-cols-4">{["packingDate", "shippingDate", "outForDeliveryDate", "deliveredDate"].map((key) => <TextField key={key} label={key.replace(/([A-Z])/g, " $1")} type="date" value={schedule[key] || ""} onChange={(e) => setSchedule(o.id, key, e.target.value)} />)}</div>}{o.status === "approved" && <div className="mt-4 rounded-md bg-green-50 p-3 text-sm font-semibold text-green-700">Approved. Invoice generated automatically. Continue delivery updates in Delivery.</div>}<div className="mt-4 grid gap-2 md:grid-cols-4">{["packingDate", "shippingDate", "outForDeliveryDate", "deliveredDate"].map((key) => o[key] && <div key={key} className="rounded-md bg-slate-50 p-2 text-xs"><span className="font-semibold">{key.replace(/([A-Z])/g, " $1")}:</span> {o[key]}</div>)}</div></div>;
-  })}</div> : <Empty />}</Section>;
+    return <div key={o.id} className="rounded-md border border-slate-200 p-4"><div className="flex flex-wrap items-start justify-between gap-3"><div><p className="font-semibold">{dealerTitle(o)} · {formatMoney(o.totalAmount)}</p><p className="text-sm text-slate-500">Order Date: {new Date(o.createdAt).toLocaleDateString()} · {o.status}</p><p className="mt-1 text-xs text-slate-400">Reference: {o.orderNumber}</p></div><div className="flex flex-wrap gap-2">{o.status === "pending" ? <><Button disabled={!ready} onClick={() => approveOrder(o.id)}>Approve Order</Button><Button variant="ghost" onClick={() => updateOrder(o.id, "rejected")}>Reject</Button></> : <StatusBadge value={o.status} />}</div></div><div className="mt-3 text-sm font-semibold text-slate-700">{o.items?.map(orderItemLabel).join(", ")}</div>{o.status === "pending" && <div className="mt-4 grid gap-3 md:grid-cols-4">{["packingDate", "shippingDate", "outForDeliveryDate", "deliveredDate"].map((key) => <TextField key={key} label={key.replace(/([A-Z])/g, " $1")} type="date" value={schedule[key] || ""} onChange={(e) => setSchedule(o.id, key, e.target.value)} />)}</div>}{o.status === "approved" && <div className="mt-4 rounded-md bg-green-50 p-3 text-sm font-semibold text-green-700">Approved. Invoice generated automatically. Continue delivery updates in Delivery.</div>}<div className="mt-4 grid gap-2 md:grid-cols-4">{["packingDate", "shippingDate", "outForDeliveryDate", "deliveredDate"].map((key) => o[key] && <div key={key} className="rounded-md bg-slate-50 p-2 text-xs"><span className="font-semibold">{key.replace(/([A-Z])/g, " $1")}:</span> {o[key]}</div>)}</div></div>;
+  })}</div><PaginationControls page={safePage} setPage={setPage} totalPages={totalPages} totalItems={filtered.length} pageSize={pageSize} /></> : <Empty text="No orders match this filter" />}</Section>;
 }
 
 function FinanceTable({ rows = [], dealers = [], filter, setFilter, sendReminder }) {
+  const [methodFilter, setMethodFilter] = useState("all");
+  const [dealerFilter, setDealerFilter] = useState("");
+  const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
+  const [selected, setSelected] = useState(null);
   const dealerName = (id) => dealers.find((d) => d.id === id)?.dealerName || `Dealer #${id}`;
-  const visible = rows.filter((p) => filter === "all" || (filter === "unpaid" ? p.paymentStatus === "pending" : filter === "paid" ? p.paymentStatus === "paid" : p.paymentMethod === filter));
-  return <Section title="Dealer-wise payment list" actions={<div className="flex flex-wrap gap-2">{["all", "unpaid", "paid", "cash", "online"].map((tab) => <button key={tab} onClick={() => setFilter(tab)} className={`rounded-full px-3 py-1 text-sm font-semibold ${filter === tab ? "bg-brand text-white" : "bg-slate-100 text-slate-600"}`}>{tab}</button>)}</div>}>{visible.length ? <div className="overflow-x-auto"><table className="w-full text-left text-sm"><thead className="bg-slate-50 text-slate-500"><tr>{["Dealer", "Invoice", "Products", "Amount", "Approved", "Days Unpaid", "Status", "Method", "Paid At", "Transaction", "Action"].map((h) => <th className="p-3" key={h}>{h}</th>)}</tr></thead><tbody>{visible.map((p) => <tr className="border-t border-slate-100" key={p.id}><td className="p-3"><p className="font-semibold">{p.Dealer?.dealerName || dealerName(p.dealerId)}</p><p className="text-xs text-slate-500">{[p.Dealer?.area, p.Dealer?.city].filter(Boolean).join(", ")}</p></td><td>{p.invoiceNumber || `INV-${p.id}`}</td><td className="max-w-xs truncate font-semibold text-slate-700">{p.productSummary || p.Order?.items?.map((i) => `${i.Product?.productName} x ${i.quantity}`).join(", ")}</td><td>{formatMoney(p.amount)}</td><td>{p.orderApprovedAt ? new Date(p.orderApprovedAt).toLocaleDateString() : "-"}</td><td>{p.daysUnpaid || 0}</td><td><PaymentBadge value={p.paymentStatus} /></td><td>{p.paymentMethod || "-"}</td><td>{p.paidAt ? new Date(p.paidAt).toLocaleString() : "-"}</td><td>{p.transactionId || "-"}</td><td>{p.paymentStatus === "pending" ? <Button variant="ghost" onClick={() => sendReminder(p.id)}>Send Reminder</Button> : "-"}</td></tr>)}</tbody></table></div> : <Empty />}</Section>;
+  const pageSize = 10;
+  const visible = rows.filter((payment) => {
+    const statusMatch = filter === "all" || (filter === "unpaid" ? payment.paymentStatus === "pending" : filter === "paid" ? payment.paymentStatus === "paid" : payment.paymentStatus === filter);
+    const methodMatch = methodFilter === "all" || payment.paymentMethod === methodFilter;
+    const dealerMatch = !dealerFilter || String(payment.dealerId) === String(dealerFilter);
+    const haystack = `${payment.invoiceNumber || ""} ${payment.Order?.orderNumber || payment.orderNumber || ""} ${payment.Dealer?.dealerName || dealerName(payment.dealerId)} ${payment.Order?.items?.map(orderItemLabel).join(" ") || payment.productSummary || ""}`.toLowerCase();
+    return statusMatch && methodMatch && dealerMatch && haystack.includes(search.toLowerCase());
+  });
+  const totalPages = Math.max(1, Math.ceil(visible.length / pageSize));
+  const safePage = Math.min(page, totalPages);
+  const pageRows = visible.slice((safePage - 1) * pageSize, safePage * pageSize);
+  const resetPage = (fn) => (value) => { fn(value); setPage(1); };
+  const actions = (
+    <div className="flex flex-wrap gap-2">
+      <input className="rounded-md border border-slate-200 px-3 py-2 text-sm" placeholder="Search invoice, dealer, SKU" value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }} />
+      <select className="rounded-md border border-slate-200 px-3 py-2 text-sm" value={dealerFilter} onChange={(e) => resetPage(setDealerFilter)(e.target.value)}>
+        <option value="">All dealers</option>
+        {dealers.map((dealer) => <option key={dealer.id} value={dealer.id}>{dealer.dealerName}</option>)}
+      </select>
+      <select className="rounded-md border border-slate-200 px-3 py-2 text-sm" value={methodFilter} onChange={(e) => resetPage(setMethodFilter)(e.target.value)}>
+        <option value="all">All methods</option>
+        <option value="cash">Cash</option>
+        <option value="online">Online</option>
+      </select>
+    </div>
+  );
+  return (
+    <>
+      <Section title="Dealer-wise payment list" actions={actions}>
+        <div className="mb-4 flex flex-wrap gap-2">{["all", "unpaid", "paid"].map((tab) => <button key={tab} onClick={() => { setFilter(tab); setPage(1); }} className={`rounded-full px-3 py-1 text-sm font-semibold ${filter === tab ? "bg-brand text-white" : "bg-slate-100 text-slate-600"}`}>{tab}</button>)}</div>
+        {pageRows.length ? <>
+          <div className="overflow-x-auto rounded-xl border border-slate-200">
+            <table className="w-full min-w-[900px] text-left text-sm">
+              <thead className="bg-slate-50 text-xs font-bold uppercase text-slate-500"><tr>{["Dealer", "Invoice", "Amount", "Status", "Method", "Due / Paid", "Action"].map((h) => <th className="px-4 py-3" key={h}>{h}</th>)}</tr></thead>
+              <tbody className="divide-y divide-slate-100">{pageRows.map((payment) => (
+                <tr key={payment.id} className="align-top transition hover:bg-slate-50">
+                  <td className="px-4 py-3"><p className="font-semibold text-slate-900">{payment.Dealer?.dealerName || dealerName(payment.dealerId)}</p><p className="text-xs text-slate-500">{[payment.Dealer?.area, payment.Dealer?.city].filter(Boolean).join(", ") || "-"}</p></td>
+                  <td className="px-4 py-3"><button type="button" onClick={() => setSelected(payment)} className="font-mono text-xs font-bold text-indigo-700 hover:underline">{payment.invoiceNumber || `INV-${payment.id}`}</button><p className="mt-1 text-xs text-slate-500">Order {payment.Order?.orderNumber || payment.orderNumber || payment.orderId}</p></td>
+                  <td className="px-4 py-3 font-bold text-slate-950">{formatMoney(payment.amount)}</td>
+                  <td className="px-4 py-3"><PaymentBadge value={payment.paymentStatus} /></td>
+                  <td className="px-4 py-3"><PaymentBadge value={payment.paymentMethod || "not selected"} /></td>
+                  <td className="px-4 py-3 text-xs text-slate-600">{payment.paymentStatus === "paid" ? (payment.paidAt ? new Date(payment.paidAt).toLocaleDateString() : "Paid") : `${payment.daysUnpaid || 0} days unpaid`}</td>
+                  <td className="px-4 py-3"><div className="flex flex-wrap gap-2"><Button className="min-h-9 px-3 py-1.5 text-xs" variant="soft" onClick={() => setSelected(payment)}>View invoice</Button>{payment.paymentStatus === "pending" && <Button className="min-h-9 px-3 py-1.5 text-xs" variant="ghost" onClick={() => sendReminder(payment.id)}>Reminder</Button>}</div></td>
+                </tr>
+              ))}</tbody>
+            </table>
+          </div>
+          <PaginationControls page={safePage} setPage={setPage} totalPages={totalPages} totalItems={visible.length} pageSize={pageSize} />
+        </> : <Empty text="No payment invoices match these filters" />}
+      </Section>
+      {selected && <InvoiceDetailsModal payment={selected} dealerName={dealerName} sendReminder={sendReminder} onClose={() => setSelected(null)} />}
+    </>
+  );
+}
+
+function InvoiceDetailsModal({ payment, dealerName, sendReminder, onClose }) {
+  const items = payment.Order?.items || [];
+  const detailRows = [
+    ["Invoice", payment.invoiceNumber || `INV-${payment.id}`],
+    ["Dealer", payment.Dealer?.dealerName || dealerName(payment.dealerId)],
+    ["Order", payment.Order?.orderNumber || payment.orderNumber || payment.orderId],
+    ["Amount", formatMoney(payment.amount)],
+    ["Payment Status", payment.paymentStatus],
+    ["Payment Method", payment.paymentMethod || "-"],
+    ["Approved", payment.orderApprovedAt ? new Date(payment.orderApprovedAt).toLocaleString() : "-"],
+    ["Days Unpaid", payment.daysUnpaid || 0],
+    ["Paid At", payment.paidAt ? new Date(payment.paidAt).toLocaleString() : "-"],
+    ["Transaction", payment.transactionId || "-"]
+  ];
+  return (
+    <ProductModalShell title={`Invoice ${payment.invoiceNumber || `INV-${payment.id}`}`} onClose={onClose} footer={<>{payment.invoiceFile && <a className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-semibold text-indigo-700" href={fileUrl(payment.invoiceFile)} target="_blank">Open invoice file</a>}{payment.paymentStatus === "pending" && <Button variant="ghost" onClick={() => sendReminder(payment.id)}>Send Reminder</Button>}<Button onClick={onClose}>Close</Button></>}>
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+        {detailRows.map(([label, value]) => <div key={label} className="rounded-xl border border-slate-200 bg-slate-50 p-3"><p className="text-xs font-bold uppercase tracking-wide text-slate-500">{label}</p><p className="mt-1 break-words font-semibold text-slate-950">{value}</p></div>)}
+      </div>
+      <div className="mt-5 rounded-xl border border-slate-200">
+        <div className="border-b border-slate-100 bg-slate-50 px-4 py-3 font-bold text-slate-900">Products in this invoice</div>
+        {items.length ? <div className="divide-y divide-slate-100">{items.map((item) => {
+          const variant = item.ProductVariant || item;
+          return (
+            <div key={item.id || `${item.productId}-${item.productVariantId}`} className="grid gap-3 px-4 py-3 text-sm md:grid-cols-[1fr_auto_auto]">
+              <div><p className="font-bold text-slate-950">{productNameWithSku(item.Product, variant)}</p><p className="text-xs text-slate-500">{item.variantName ? `${item.variantName} / ${item.colorName || "-"}` : "Standard"} {item.Product?.category ? `| ${item.Product.category}` : ""}</p></div>
+              <div className="rounded-lg bg-slate-50 px-3 py-2 font-semibold text-slate-700">Quantity: {item.quantity}</div>
+              <div className="rounded-lg bg-indigo-50 px-3 py-2 font-semibold text-indigo-700">{formatMoney(item.lineTotal || item.total || Number(item.price || item.unitPrice || 0) * Number(item.quantity || 0))}</div>
+            </div>
+          );
+        })}</div> : <div className="p-4 text-sm text-slate-600">{payment.productSummary || "No product details available for this invoice."}</div>}
+      </div>
+    </ProductModalShell>
+  );
 }
 
 function AdminChat({ data = {}, form, setForm, sendMessage }) {

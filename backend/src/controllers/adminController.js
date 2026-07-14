@@ -29,8 +29,79 @@ const { publicPath } = require("../middleware/upload");
 const { progressForStatus, activeDeliveryStep, daysUntil } = require("../utils/delivery");
 const { awardCreditCoinsForOrder, creditStatsForCompany, getOrCreateWallet, dateWhere } = require("../utils/credit");
 const { licenseCapacity } = require("../utils/licenseService");
+const { licenseSystemEnabled } = require("../utils/featureFlags");
 
 const companyScope = (req) => ({ companyId: req.user.companyId });
+
+function skuPart(value, fallback = "GEN") {
+  return String(value || fallback)
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, "")
+    .slice(0, 12) || fallback;
+}
+
+function randomDigits(length) {
+  const min = 10 ** (length - 1);
+  const max = 10 ** length - 1;
+  return String(Math.floor(min + Math.random() * (max - min + 1)));
+}
+
+async function generateProductSku({ productName, company, category, manufacturingDate, companyId }, transaction) {
+  const year = manufacturingDate ? new Date(manufacturingDate).getFullYear() : new Date().getFullYear();
+  const safeYear = Number.isFinite(year) ? year : new Date().getFullYear();
+  const companyPart = skuPart(company?.category || company?.companyName, "COMP");
+  const categoryPart = skuPart(category, "CAT");
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const sku = `${skuPart(productName, "PRODUCT")}${randomDigits(6)}${companyPart}${categoryPart}${safeYear}`;
+    const exists = await Product.findOne({ where: { companyId, sku }, transaction });
+    if (!exists) return sku;
+  }
+  return `${skuPart(productName, "PRODUCT")}${Date.now()}${companyPart}${categoryPart}${safeYear}`;
+}
+
+function generateVariantSuffix(row) {
+  return `${skuPart(row.variantName, "VAR")}${randomDigits(4)}${skuPart(row.colorName, "COLOR")}${randomDigits(3)}`;
+}
+
+function normalizeVariantRows(rows, fallbackQuantity = 0) {
+  const source = rows.length ? rows : [{ variantName: "Standard", colorName: "Default", stockQuantity: Number(fallbackQuantity || 0), priceOverride: null }];
+  const seen = new Set();
+  return source.map((row) => {
+    const variantName = String(row.variantName || "Standard").trim();
+    const colorName = String(row.colorName || "Default").trim();
+    const key = `${variantName.toLowerCase()}::${colorName.toLowerCase()}`;
+    if (seen.has(key)) {
+      const error = new Error(`Variant ${variantName} / ${colorName} already exists for this product.`);
+      error.status = 409;
+      throw error;
+    }
+    seen.add(key);
+    return { ...row, variantName, colorName };
+  });
+}
+
+function assertNoDuplicateVariantSkuSuffix(rows) {
+  const seen = new Set();
+  for (const row of rows) {
+    if (!row.skuSuffix) continue;
+    const key = String(row.skuSuffix).trim().toUpperCase();
+    if (seen.has(key)) {
+      const error = new Error(`Variant SKU suffix ${row.skuSuffix} already exists for this product.`);
+      error.status = 409;
+      throw error;
+    }
+    seen.add(key);
+  }
+}
+
+function timestampDateWhere(startDate, endDate) {
+  if (!startDate && !endDate) return undefined;
+  const where = {};
+  if (startDate) where[Op.gte] = new Date(`${startDate}T00:00:00`);
+  if (endDate) where[Op.lte] = new Date(`${endDate}T23:59:59.999`);
+  return where;
+}
 
 function productSummary(items = []) {
   return items.map((item) => {
@@ -133,14 +204,38 @@ exports.analytics = asyncHandler(async (req, res) => {
   const statuses = ["pending", "approved", "packing", "shipping", "out_for_delivery", "delivered", "rejected"];
   const today = new Date().toISOString().slice(0, 10);
   const monthStart = `${today.slice(0, 7)}-01`;
+  const period = ["today", "week", "month", "custom"].includes(req.query.period) ? req.query.period : "current";
+  let startDate = req.query.startDate || null;
+  let endDate = req.query.endDate || null;
+  if (period === "today") startDate = endDate = today;
+  if (period === "week") {
+    const weekStart = new Date();
+    weekStart.setDate(weekStart.getDate() - 6);
+    startDate = weekStart.toISOString().slice(0, 10);
+    endDate = today;
+  }
+  if (period === "month") { startDate = monthStart; endDate = today; }
+  const activityRange = timestampDateWhere(startDate, endDate);
+  const saleRange = dateWhere(startDate, endDate);
+  const dealerWhere = { companyId };
+  if (req.query.area) dealerWhere.area = req.query.area;
+  if (req.query.city) dealerWhere.city = req.query.city;
+  if (["active", "inactive", "blocked"].includes(req.query.dealerStatus)) dealerWhere.status = req.query.dealerStatus;
+  if (req.query.dealerCreatedStart || req.query.dealerCreatedEnd) dealerWhere.createdAt = timestampDateWhere(req.query.dealerCreatedStart, req.query.dealerCreatedEnd);
+  const filteredDealers = await Dealer.findAll({ where: dealerWhere, order: [["dealerName", "ASC"]] });
+  const dealerFilterActive = Object.keys(dealerWhere).length > 1;
+  const scopedDealerIds = filteredDealers.map((dealer) => dealer.id);
+  const dealerScope = dealerFilterActive ? { dealerId: scopedDealerIds.length ? scopedDealerIds : [0] } : {};
+  const orderWhere = { companyId, ...dealerScope, ...(activityRange ? { createdAt: activityRange } : {}) };
+  const saleWhere = { companyId, ...dealerScope, ...(saleRange ? { saleDate: saleRange } : {}) };
   const [summary, orderCounts, inventory, dealerInventory, payments, dealers, recentOrders, recentPayments, recentMessages, recentDeliveryUpdates, stockRequestMessages, salesRows, todaySalesRows, monthSalesRows, recentLowStockNotifications] = await Promise.all([
     exports.dashboardData(companyId),
-    Promise.all(statuses.map(async (status) => ({ status, count: await Order.count({ where: { companyId, status } }) }))),
+    Promise.all(statuses.map(async (status) => ({ status, count: await Order.count({ where: { ...orderWhere, status } }) }))),
     CompanyInventory.findAll({ where: { companyId }, include: [Product], order: [["quantity", "DESC"]] }),
-    DealerInventory.findAll({ where: { companyId }, include: [Product, ProductVariant], order: [["quantity", "DESC"]] }),
-    Payment.findAll({ where: { companyId }, include: [{ model: Order, include: [{ model: OrderItem, as: "items", include: [Product, ProductVariant] }] }, Dealer], order: [["createdAt", "DESC"]] }),
-    Dealer.findAll({ where: { companyId }, order: [["dealerName", "ASC"]] }),
-    Order.findAll({ where: { companyId }, include: [Dealer], order: [["createdAt", "DESC"]], limit: 5 }),
+    DealerInventory.findAll({ where: { companyId, ...dealerScope }, include: [Product, ProductVariant], order: [["quantity", "DESC"]] }),
+    Payment.findAll({ where: { companyId, ...dealerScope, ...(activityRange ? { createdAt: activityRange } : {}) }, include: [{ model: Order, include: [{ model: OrderItem, as: "items", include: [Product, ProductVariant] }] }, Dealer], order: [["createdAt", "DESC"]] }),
+    Promise.resolve(filteredDealers),
+    Order.findAll({ where: orderWhere, include: [{ model: Dealer, attributes: ["id", "dealerName", "area", "city"] }, { model: OrderItem, as: "items", include: [Product, ProductVariant] }], order: [["createdAt", "DESC"]], limit: 5 }),
     Payment.findAll({ where: { companyId }, include: [{ model: Order, include: [{ model: OrderItem, as: "items", include: [Product, ProductVariant] }] }, Dealer], order: [["createdAt", "DESC"]], limit: 5 }),
     Message.findAll({ where: { companyId }, include: [{ model: User, as: "sender", attributes: ["id", "name", "role"] }], order: [["createdAt", "DESC"]], limit: 5 }),
     DeliveryTracking.findAll({
@@ -149,7 +244,7 @@ exports.analytics = asyncHandler(async (req, res) => {
       limit: 5
     }),
     Message.count({ where: { companyId, messageType: "stock_request" } }),
-    DealerSale.findAll({ where: { companyId }, include: [Product, Dealer], order: [["saleDate", "DESC"], ["createdAt", "DESC"]] }),
+    DealerSale.findAll({ where: saleWhere, include: [Product, ProductVariant, Dealer], order: [["saleDate", "DESC"], ["createdAt", "DESC"]] }),
     DealerSale.findAll({ where: { companyId, saleDate: today }, attributes: [[fn("SUM", col("quantitySold")), "total"]] }),
     DealerSale.findAll({ where: { companyId, saleDate: { [Op.gte]: monthStart } }, attributes: [[fn("SUM", col("quantitySold")), "total"]] }),
     InternalNotification.findAll({ where: { companyId, type: "LOW_STOCK" }, order: [["createdAt", "DESC"]], limit: 5 })
@@ -162,8 +257,13 @@ exports.analytics = asyncHandler(async (req, res) => {
     acc[key] = (acc[key] || 0) + 1;
     return acc;
   }, {});
-  const orderTotals = (await Order.findAll({ where: { companyId }, attributes: ["dealerId", "totalAmount"] })).reduce((acc, order) => {
+  const scopedOrders = await Order.findAll({ where: orderWhere, attributes: ["id", "dealerId", "status", "totalAmount", "createdAt"], include: [{ model: OrderItem, as: "items", attributes: ["quantity"] }] });
+  const orderTotals = scopedOrders.reduce((acc, order) => {
     acc[order.dealerId] = (acc[order.dealerId] || 0) + Number(order.totalAmount || 0);
+    return acc;
+  }, {});
+  const orderCountsByDealer = scopedOrders.reduce((acc, order) => {
+    acc[order.dealerId] = (acc[order.dealerId] || 0) + 1;
     return acc;
   }, {});
   const pendingPaymentsByDealer = payments.filter((p) => p.paymentStatus === "pending").reduce((acc, payment) => {
@@ -176,7 +276,7 @@ exports.analytics = asyncHandler(async (req, res) => {
   }, {});
   const salesByProduct = salesRows.reduce((acc, sale) => {
     const key = sale.productId;
-    acc[key] = acc[key] || { productId: key, productName: sale.Product?.productName || `Product #${key}`, quantitySold: 0 };
+    acc[key] = acc[key] || { productId: key, productName: sale.Product?.productName || `Product #${key}`, sku: sale.Product?.sku, quantitySold: 0 };
     acc[key].quantitySold += Number(sale.quantitySold || 0);
     return acc;
   }, {});
@@ -186,6 +286,20 @@ exports.analytics = asyncHandler(async (req, res) => {
     acc[key].quantitySold += Number(sale.quantitySold || 0);
     return acc;
   }, {});
+  const topDealerRows = dealers.map((dealer) => ({
+    dealerId: dealer.id,
+    dealerName: dealer.dealerName,
+    area: dealer.area,
+    city: dealer.city,
+    purchaseAmount: orderTotals[dealer.id] || 0,
+    salesUnits: salesByDealer[dealer.id]?.quantitySold || 0,
+    orderCount: orderCountsByDealer[dealer.id] || 0
+  }));
+  const topActivityProducts = Object.values(salesByProduct).map((row) => ({
+    ...row,
+    quantity: Number(inventory.find((item) => Number(item.productId) === Number(row.productId))?.quantity || 0),
+    salesQuantity: row.quantitySold
+  })).sort((a, b) => b.salesQuantity - a.salesQuantity).slice(0, 5);
 
   const pendingOrdersForStock = await Order.findAll({ where: { companyId, status: "pending" }, include: [{ model: OrderItem, as: "items", include: [Product, ProductVariant] }] });
   let notEnoughStockOrders = 0;
@@ -200,9 +314,11 @@ exports.analytics = asyncHandler(async (req, res) => {
     inventoryStats: {
       totalStock: summary.totalCompanyStock,
       lowStockProducts: summary.lowStockProducts,
-      topHighestStockProducts: inventory.slice(0, 5).map((item) => ({ productName: item.Product?.productName, quantity: item.quantity })),
-      topLowStockProducts: inventory.filter((item) => item.quantity <= item.lowStockLimit).sort((a, b) => a.quantity - b.quantity).slice(0, 5).map((item) => ({ productName: item.Product?.productName, quantity: item.quantity, lowStockLimit: item.lowStockLimit })),
-      dealerWiseStockSummary: Object.entries(stockByDealer).map(([dealerId, quantity]) => ({ dealerId: Number(dealerId), dealerName: dealerName(Number(dealerId)), quantity }))
+      selectedMetric: period === "current" ? "Current Stock" : "Units Sold in Selected Period",
+      topHighestStockProducts: inventory.slice(0, 5).map((item) => ({ productName: item.Product?.productName, sku: item.Product?.sku, quantity: Number(item.quantity || 0), salesQuantity: Number(salesByProduct[item.productId]?.quantitySold || 0) })),
+      topActivityProducts,
+      topLowStockProducts: inventory.filter((item) => item.quantity <= item.lowStockLimit).sort((a, b) => a.quantity - b.quantity).slice(0, 5).map((item) => ({ productName: item.Product?.productName, sku: item.Product?.sku, quantity: Number(item.quantity || 0), lowStockLimit: Number(item.lowStockLimit || 0), difference: Number(item.quantity || 0) - Number(item.lowStockLimit || 0), stockStatus: Number(item.quantity || 0) <= 0 ? "Out of Stock" : "Low Stock" })),
+      dealerWiseStockSummary: dealers.map((dealer) => ({ dealerId: dealer.id, dealerName: dealer.dealerName, area: dealer.area, city: dealer.city, quantity: stockByDealer[dealer.id] || 0 })).sort((a, b) => b.quantity - a.quantity).slice(0, 5)
     },
     financeStats: {
       totalRevenue: summary.totalRevenue,
@@ -216,9 +332,14 @@ exports.analytics = asyncHandler(async (req, res) => {
     dealerStats: {
       totalActiveDealers: dealers.filter((dealer) => dealer.status === "active").length,
       blockedDealers: dealers.filter((dealer) => dealer.status === "blocked").length,
-      areaWiseDealerCount: Object.entries(areaWise).map(([area, count]) => ({ area, count })),
+      areaWiseDealerCount: Object.entries(areaWise).map(([area, count]) => ({ area, count })).sort((a, b) => b.count - a.count),
       topDealersByOrderAmount: Object.entries(orderTotals).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([dealerId, amount]) => ({ dealerId: Number(dealerId), dealerName: dealerName(Number(dealerId)), amount })),
-      topDealersByPendingPayment: Object.entries(pendingPaymentsByDealer).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([dealerId, amount]) => ({ dealerId: Number(dealerId), dealerName: dealerName(Number(dealerId)), amount }))
+      topDealersByPendingPayment: Object.entries(pendingPaymentsByDealer).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([dealerId, amount]) => ({ dealerId: Number(dealerId), dealerName: dealerName(Number(dealerId)), amount })),
+      topByPurchase: [...topDealerRows].sort((a, b) => b.purchaseAmount - a.purchaseAmount).slice(0, 5),
+      topBySales: [...topDealerRows].sort((a, b) => b.salesUnits - a.salesUnits).slice(0, 5),
+      topByOrderCount: [...topDealerRows].sort((a, b) => b.orderCount - a.orderCount).slice(0, 5),
+      cities: [...new Set(filteredDealers.map((dealer) => dealer.city).filter(Boolean))],
+      areas: [...new Set(filteredDealers.map((dealer) => dealer.area).filter(Boolean))]
     },
     stockRiskStats: {
       notEnoughStockOrders,
@@ -232,7 +353,8 @@ exports.analytics = asyncHandler(async (req, res) => {
       topSellingProducts: Object.values(salesByProduct).sort((a, b) => b.quantitySold - a.quantitySold).slice(0, 5),
       dealerSalesPerformance: Object.values(salesByDealer).sort((a, b) => b.quantitySold - a.quantitySold).slice(0, 5)
     },
-    recentOrders,
+    period: { value: period, startDate, endDate },
+    recentOrders: recentOrders.map((order) => ({ ...order.toJSON(), paymentStatus: payments.find((payment) => Number(payment.orderId) === Number(order.id))?.paymentStatus || null })),
     recentPayments,
     recentMessages,
     recentDeliveryUpdates,
@@ -276,13 +398,9 @@ exports.company = asyncHandler(async (req, res) => {
 exports.createDealer = asyncHandler(async (req, res) => {
   const { password = "dealer123", ...body } = req.body;
   if (!body.dealerName || !body.ownerName || !body.email) return res.status(400).json({ message: "Dealer name, owner name and email are required" });
-  const license = await licenseCapacity(req.user.companyId);
-  if (license.limitReached) {
-    return res.status(403).json({
-      code: "LICENSE_LIMIT_REACHED",
-      message: "Great to see your business growing. To add more dealers, please purchase an additional license and continue expanding your network.",
-      licenseStatus: license
-    });
+  if (licenseSystemEnabled()) {
+    const license = await licenseCapacity(req.user.companyId);
+    if (license.limitReached) return res.status(403).json({ code: "LICENSE_LIMIT_REACHED", message: "Dealer license capacity has been reached.", licenseStatus: license });
   }
   const existingUser = await User.findOne({ where: { email: body.email } });
   if (existingUser) return res.status(409).json({ message: "A user with this email already exists" });
@@ -304,6 +422,7 @@ exports.createDealer = asyncHandler(async (req, res) => {
 });
 
 exports.licenseStatus = asyncHandler(async (req, res) => {
+  if (!licenseSystemEnabled()) return res.status(410).json({ message: "The license system is no longer active." });
   res.json(await licenseCapacity(req.user.companyId));
 });
 
@@ -327,24 +446,125 @@ exports.createLicenseRequest = asyncHandler(async (req, res) => {
 });
 
 exports.dealers = asyncHandler(async (req, res) => {
+  const hasPaginationQuery = ["page", "limit", "search", "ownerName", "email", "area", "city", "status", "sortBy", "sortOrder", "startDate", "endDate"].some((key) => req.query[key] != null);
   const where = companyScope(req);
+  if (req.query.search) where.dealerName = { [Op.like]: `%${String(req.query.search).trim()}%` };
+  if (req.query.ownerName) where.ownerName = { [Op.like]: `%${String(req.query.ownerName).trim()}%` };
+  if (req.query.email) where.email = { [Op.like]: `%${String(req.query.email).trim()}%` };
   if (req.query.area) where.area = req.query.area;
-  const dealers = await Dealer.findAll({ where, order: [["createdAt", "DESC"]] });
-  res.json(dealers);
+  if (req.query.city) where.city = req.query.city;
+  if (req.query.status) where.status = req.query.status;
+  if (req.query.startDate || req.query.endDate) {
+    where.createdAt = {};
+    if (req.query.startDate) where.createdAt[Op.gte] = new Date(`${req.query.startDate}T00:00:00`);
+    if (req.query.endDate) where.createdAt[Op.lte] = new Date(`${req.query.endDate}T23:59:59.999`);
+  }
+  const sortColumns = { createdAt: "createdAt", dealerName: "dealerName", ownerName: "ownerName", city: "city" };
+  const sortBy = sortColumns[req.query.sortBy] || "createdAt";
+  const sortOrder = String(req.query.sortOrder || "DESC").toUpperCase() === "ASC" ? "ASC" : "DESC";
+  if (!hasPaginationQuery) return res.json(await Dealer.findAll({ where, order: [[sortBy, sortOrder]] }));
+
+  const page = Math.max(1, Number.parseInt(req.query.page, 10) || 1);
+  const limit = [10, 25, 50].includes(Number(req.query.limit)) ? Number(req.query.limit) : 10;
+  const { count, rows } = await Dealer.findAndCountAll({
+    where,
+    attributes: ["id", "dealerName", "ownerName", "email", "phone", "area", "city", "state", "pincode", "address", "status", "createdAt", "updatedAt"],
+    order: [[sortBy, sortOrder]], limit, offset: (page - 1) * limit
+  });
+  const filterScope = companyScope(req);
+  const cityScope = { ...filterScope, ...(req.query.area ? { area: req.query.area } : {}) };
+  const [areaRows, cityRows] = await Promise.all([
+    Dealer.findAll({ where: { ...filterScope, area: { [Op.ne]: null } }, attributes: [[fn("DISTINCT", col("area")), "value"]], order: [["area", "ASC"]] }),
+    Dealer.findAll({ where: { ...cityScope, city: { [Op.ne]: null } }, attributes: [[fn("DISTINCT", col("city")), "value"]], order: [["city", "ASC"]] })
+  ]);
+  const totalPages = Math.max(1, Math.ceil(count / limit));
+  res.json({
+    dealers: rows,
+    pagination: { page, limit, totalItems: count, totalPages, hasNext: page < totalPages, hasPrevious: page > 1 },
+    filters: { areas: areaRows.map((row) => row.get("value")).filter(Boolean), cities: cityRows.map((row) => row.get("value")).filter(Boolean) }
+  });
+});
+
+exports.getDealer = asyncHandler(async (req, res) => {
+  const dealer = await Dealer.findOne({ where: { id: req.params.id, ...companyScope(req) } });
+  if (!dealer) return res.status(404).json({ message: "Dealer not found" });
+  const scope = { companyId: req.user.companyId, dealerId: dealer.id };
+  const [orders, pendingPaymentAmount, inventoryItems, lowStockItems, wallet, lastOrderDate] = await Promise.all([
+    Order.findAll({ where: scope, attributes: ["status", "totalAmount"] }),
+    Payment.sum("amount", { where: { ...scope, paymentStatus: "pending" } }),
+    DealerInventory.count({ where: scope }),
+    DealerInventory.count({ where: { ...scope, quantity: { [Op.lte]: col("lowStockLimit") } } }),
+    DealerCreditWallet.findOne({ where: scope, attributes: ["balance"] }),
+    Order.max("createdAt", { where: scope })
+  ]);
+  const totalPurchaseAmount = orders.reduce((sum, order) => sum + Number(order.totalAmount || 0), 0);
+  res.json({
+    dealer,
+    summary: {
+      totalOrders: orders.length,
+      approvedOrders: orders.filter((order) => order.status === "approved").length,
+      deliveredOrders: orders.filter((order) => order.status === "delivered").length,
+      pendingOrders: orders.filter((order) => order.status === "pending").length,
+      totalPurchaseAmount,
+      pendingPaymentAmount: Number(pendingPaymentAmount || 0),
+      currentInventoryItems: inventoryItems,
+      lowStockItems,
+      creditBalance: Number(wallet?.balance || 0),
+      lastOrderDate: lastOrderDate || null
+    }
+  });
 });
 
 exports.updateDealer = asyncHandler(async (req, res) => {
   const dealer = await Dealer.findOne({ where: { id: req.params.id, ...companyScope(req) } });
   if (!dealer) return res.status(404).json({ message: "Dealer not found" });
-  await dealer.update(req.body);
+  const fields = ["dealerName", "ownerName", "email", "phone", "area", "city", "state", "pincode", "address", "status"];
+  const updates = fields.reduce((result, field) => {
+    if (Object.prototype.hasOwnProperty.call(req.body, field)) result[field] = req.body[field] === "" ? null : req.body[field];
+    return result;
+  }, {});
+  if (updates.email) {
+    updates.email = String(updates.email).trim().toLowerCase();
+    const duplicateDealer = await Dealer.findOne({ where: { email: updates.email, id: { [Op.ne]: dealer.id } } });
+    const duplicateUser = await User.findOne({ where: { email: updates.email, [Op.or]: [{ dealerId: { [Op.ne]: dealer.id } }, { dealerId: null }] } });
+    if (duplicateDealer || duplicateUser) return res.status(409).json({ message: "A dealer or user with this email already exists" });
+  }
+  await User.sequelize.transaction(async (transaction) => {
+    await dealer.update(updates, { transaction });
+    const userUpdates = {};
+    if (updates.ownerName || updates.dealerName) userUpdates.name = updates.ownerName || updates.dealerName;
+    if (updates.email) userUpdates.email = updates.email;
+    if (Object.prototype.hasOwnProperty.call(updates, "status")) userUpdates.status = updates.status === "active" ? "active" : "inactive";
+    if (Object.keys(userUpdates).length) await User.update(userUpdates, { where: { dealerId: dealer.id, companyId: req.user.companyId }, transaction });
+  });
+  res.json(dealer);
+});
+
+exports.setDealerStatus = asyncHandler(async (req, res) => {
+  const status = req.body.status;
+  if (!["active", "inactive", "blocked"].includes(status)) return res.status(400).json({ message: "Invalid dealer status" });
+  const dealer = await Dealer.findOne({ where: { id: req.params.id, ...companyScope(req) } });
+  if (!dealer) return res.status(404).json({ message: "Dealer not found" });
+  await User.sequelize.transaction(async (transaction) => {
+    await dealer.update({ status }, { transaction });
+    await User.update({ status: status === "active" ? "active" : "inactive" }, { where: { dealerId: dealer.id, companyId: req.user.companyId }, transaction });
+  });
   res.json(dealer);
 });
 
 exports.deleteDealer = asyncHandler(async (req, res) => {
   const dealer = await Dealer.findOne({ where: { id: req.params.id, ...companyScope(req) } });
   if (!dealer) return res.status(404).json({ message: "Dealer not found" });
-  await dealer.destroy();
-  res.json({ message: "Dealer deleted" });
+  const dependencyScope = { companyId: req.user.companyId, dealerId: dealer.id };
+  const [orders, payments, inventory, sales, creditTransactions] = await Promise.all([
+    Order.count({ where: dependencyScope }), Payment.count({ where: dependencyScope }), DealerInventory.count({ where: dependencyScope }),
+    DealerSale.count({ where: dependencyScope }), DealerCreditTransaction.count({ where: dependencyScope })
+  ]);
+  await User.sequelize.transaction(async (transaction) => {
+    await dealer.update({ status: "inactive" }, { transaction });
+    await User.update({ status: "inactive" }, { where: { dealerId: dealer.id, companyId: req.user.companyId }, transaction });
+  });
+  res.json({ message: "Dealer safely archived and login disabled", softDeleted: true, dependentRecords: orders + payments + inventory + sales + creditTransactions });
 });
 
 exports.createProduct = asyncHandler(async (req, res) => {
@@ -353,14 +573,24 @@ exports.createProduct = asyncHandler(async (req, res) => {
   const creditCoins = Math.max(0, Number(req.body.creditCoins || 0));
   if (variants.some((row) => Number(row.stockQuantity || 0) < 0)) return res.status(400).json({ message: "Stock quantity cannot be negative" });
   const result = await Product.sequelize.transaction(async (transaction) => {
+    const company = await Company.findByPk(req.user.companyId, { transaction });
+    const sku = await generateProductSku({
+      productName: req.body.productName,
+      category: req.body.category,
+      manufacturingDate: req.body.manufacturingDate,
+      company,
+      companyId: req.user.companyId
+    }, transaction);
     const product = await Product.create({
       ...req.body,
+      sku,
       creditCoins,
       variantEnabled: req.body.variantEnabled !== "false",
       image: image || req.body.image,
       companyId: req.user.companyId
     }, { transaction });
-    const variantRows = variants.length ? variants : [{ variantName: "Standard", colorName: "Default", stockQuantity: Number(req.body.quantity || 0), priceOverride: null, skuSuffix: null }];
+    const variantRows = normalizeVariantRows(variants, req.body.quantity);
+    assertNoDuplicateVariantSkuSuffix(variantRows);
     const inventoryQuantity = variantRows.reduce((total, row) => total + Number(row.stockQuantity || 0), 0);
     const inventory = await CompanyInventory.create({
       companyId: req.user.companyId,
@@ -376,7 +606,7 @@ exports.createProduct = asyncHandler(async (req, res) => {
       colorName: row.colorName || "Default",
       stockQuantity: Math.max(0, Number(row.stockQuantity || 0)),
       priceOverride: row.priceOverride === "" || row.priceOverride == null ? null : Number(row.priceOverride),
-      skuSuffix: row.skuSuffix || null,
+      skuSuffix: row.skuSuffix || generateVariantSuffix(row),
       status: row.status || "active"
     })), { transaction });
     return { product, inventory };
@@ -396,23 +626,42 @@ exports.updateProduct = asyncHandler(async (req, res) => {
   await Product.sequelize.transaction(async (transaction) => {
     await product.update({
       productName: req.body.productName ?? product.productName,
-      sku: req.body.sku ?? product.sku,
+      sku: product.sku,
       category: req.body.category ?? product.category,
       description: req.body.description ?? product.description,
+      manufacturingDate: Object.prototype.hasOwnProperty.call(req.body, "manufacturingDate") ? (req.body.manufacturingDate || null) : product.manufacturingDate,
+      expiryDate: Object.prototype.hasOwnProperty.call(req.body, "expiryDate") ? (req.body.expiryDate || null) : product.expiryDate,
       price: req.body.price ?? product.price,
       creditCoins: Math.max(0, Number(req.body.creditCoins ?? product.creditCoins ?? 0)),
       image: publicPath("products", req.file) || req.body.image || product.image,
       status: req.body.status ?? product.status
     }, { transaction });
     if (variants) {
-      for (const row of variants) {
+      const normalizedRows = normalizeVariantRows(variants);
+      assertNoDuplicateVariantSkuSuffix(normalizedRows);
+      const existingVariants = await ProductVariant.findAll({ where: { companyId: req.user.companyId, productId: product.id }, transaction });
+      for (const row of normalizedRows) {
+        const variantName = String(row.variantName || "Standard").trim();
+        const colorName = String(row.colorName || "Default").trim();
+        const duplicate = existingVariants.find((variant) => Number(variant.id) !== Number(row.id) && variant.variantName.toLowerCase() === variantName.toLowerCase() && variant.colorName.toLowerCase() === colorName.toLowerCase());
+        if (duplicate) {
+          const error = new Error(`Variant ${variantName} / ${colorName} already exists for this product.`);
+          error.status = 409;
+          throw error;
+        }
+        const duplicateSuffix = row.skuSuffix && existingVariants.find((variant) => Number(variant.id) !== Number(row.id) && String(variant.skuSuffix || "").toUpperCase() === String(row.skuSuffix).trim().toUpperCase());
+        if (duplicateSuffix) {
+          const error = new Error(`Variant SKU suffix ${row.skuSuffix} already exists for this product.`);
+          error.status = 409;
+          throw error;
+        }
         if (row.id) {
           await ProductVariant.update({
-            variantName: row.variantName || "Standard",
-            colorName: row.colorName || "Default",
+            variantName,
+            colorName,
             stockQuantity: Math.max(0, Number(row.stockQuantity || 0)),
             priceOverride: row.priceOverride === "" || row.priceOverride == null ? null : Number(row.priceOverride),
-            skuSuffix: row.skuSuffix || null,
+            skuSuffix: row.skuSuffix || existingVariants.find((variant) => Number(variant.id) === Number(row.id))?.skuSuffix || generateVariantSuffix(row),
             image: row.image || null,
             status: row.status || "active"
           }, { where: { id: row.id, companyId: req.user.companyId, productId: product.id }, transaction });
@@ -420,11 +669,11 @@ exports.updateProduct = asyncHandler(async (req, res) => {
           await ProductVariant.create({
             companyId: req.user.companyId,
             productId: product.id,
-            variantName: row.variantName || "Standard",
-            colorName: row.colorName || "Default",
+            variantName,
+            colorName,
             stockQuantity: Math.max(0, Number(row.stockQuantity || 0)),
             priceOverride: row.priceOverride === "" || row.priceOverride == null ? null : Number(row.priceOverride),
-            skuSuffix: row.skuSuffix || null,
+            skuSuffix: generateVariantSuffix(row),
             image: row.image || null,
             status: row.status || "active"
           }, { transaction });
@@ -465,12 +714,24 @@ exports.updateProductVariant = asyncHandler(async (req, res) => {
   if (!variant) return res.status(404).json({ message: "Variant not found" });
   const stockQuantity = Number(req.body.stockQuantity ?? variant.stockQuantity);
   if (stockQuantity < 0) return res.status(400).json({ message: "Stock quantity cannot be negative" });
+  if (req.body.variantName || req.body.colorName) {
+    const duplicate = await ProductVariant.findOne({
+      where: {
+        companyId: req.user.companyId,
+        productId: variant.productId,
+        id: { [Op.ne]: variant.id },
+        variantName: req.body.variantName ?? variant.variantName,
+        colorName: req.body.colorName ?? variant.colorName
+      }
+    });
+    if (duplicate) return res.status(409).json({ message: `Variant ${req.body.variantName ?? variant.variantName} / ${req.body.colorName ?? variant.colorName} already exists for this product.` });
+  }
   await variant.update({
     variantName: req.body.variantName ?? variant.variantName,
     colorName: req.body.colorName ?? variant.colorName,
     stockQuantity,
     priceOverride: req.body.priceOverride === "" ? null : req.body.priceOverride ?? variant.priceOverride,
-    skuSuffix: req.body.skuSuffix ?? variant.skuSuffix,
+    skuSuffix: variant.skuSuffix,
     status: req.body.status ?? variant.status
   });
   const total = await ProductVariant.sum("stockQuantity", { where: { companyId: req.user.companyId, productId: variant.productId } });
@@ -505,7 +766,7 @@ exports.dealerSales = asyncHandler(async (req, res) => {
     if (req.query.from) where.saleDate[Op.gte] = req.query.from;
     if (req.query.to) where.saleDate[Op.lte] = req.query.to;
   }
-  const rows = await DealerSale.findAll({ where, include: [Product, Dealer], order: [["saleDate", "DESC"], ["createdAt", "DESC"]] });
+  const rows = await DealerSale.findAll({ where, include: [Product, ProductVariant, Dealer], order: [["saleDate", "DESC"], ["createdAt", "DESC"]] });
   const totalSoldUnits = rows.reduce((total, row) => total + Number(row.quantitySold || 0), 0);
   const byProduct = rows.reduce((acc, row) => {
     const key = row.productId;
@@ -816,14 +1077,15 @@ function monthKey(value) {
 
 exports.dealerPerformance = asyncHandler(async (req, res) => {
   const companyId = req.user.companyId;
-  const { area, dealerId, startDate, endDate, productId, paymentStatus } = req.query;
+  const { area, city, dealerId, startDate, endDate, productId, paymentStatus } = req.query;
   const dealerWhere = { companyId };
   if (area) dealerWhere.area = area;
+  if (city) dealerWhere.city = city;
   const dealers = await Dealer.findAll({ where: dealerWhere, order: [["dealerName", "ASC"]] });
   const dealerIds = dealers.map((dealer) => dealer.id);
-  const selectedDealerId = Number(dealerId || dealerIds[0] || 0);
+  const selectedDealerId = Number(dealerId || 0);
   const scopedDealerIds = selectedDealerId ? dealerIds.filter((id) => id === selectedDealerId) : dealerIds;
-  const createdRange = dateWhere(startDate, endDate);
+  const createdRange = timestampDateWhere(startDate, endDate);
   const orderWhere = { companyId, dealerId: scopedDealerIds.length ? scopedDealerIds : [0] };
   if (createdRange) orderWhere.createdAt = createdRange;
   const paymentWhere = { companyId, dealerId: scopedDealerIds.length ? scopedDealerIds : [0] };
@@ -834,8 +1096,10 @@ exports.dealerPerformance = asyncHandler(async (req, res) => {
   if (productId) salesWhere.productId = productId;
   if (startDate || endDate) salesWhere.saleDate = dateWhere(startDate, endDate);
 
-  const [areasRows, orders, payments, sales, inventory, wallet, transactions, redemptions] = await Promise.all([
+  const [areasRows, citiesRows, productRows, orders, payments, sales, inventory, wallet, transactions, redemptions] = await Promise.all([
     Dealer.findAll({ where: { companyId }, attributes: ["area"], group: ["area"] }),
+    Dealer.findAll({ where: { companyId, ...(area ? { area } : {}) }, attributes: ["city"], group: ["city"] }),
+    Product.findAll({ where: { companyId }, attributes: ["id", "productName"], order: [["productName", "ASC"]] }),
     Order.findAll({ where: orderWhere, include: [{ model: OrderItem, as: "items", include: [Product, ProductVariant] }, { model: Dealer, attributes: ["id", "dealerName", "area", "city", "pincode"] }], order: [["createdAt", "DESC"]] }),
     Payment.findAll({ where: paymentWhere, include: [{ model: Order, include: [{ model: OrderItem, as: "items", include: [Product, ProductVariant] }] }, { model: Dealer, attributes: ["id", "dealerName", "area", "city", "pincode"] }], order: [["createdAt", "DESC"]] }),
     DealerSale.findAll({ where: salesWhere, include: [Product, ProductVariant], order: [["saleDate", "DESC"], ["createdAt", "DESC"]] }),
@@ -876,22 +1140,40 @@ exports.dealerPerformance = asyncHandler(async (req, res) => {
     if (tx.type === "REDEEM") acc[key].redeemed += Number(tx.coins || 0);
     return acc;
   }, {})).sort((a, b) => a.month.localeCompare(b.month));
+  const dealerPerformance = Object.values(orders.reduce((acc, order) => {
+    const id = order.dealerId;
+    const dealer = order.Dealer;
+    acc[id] = acc[id] || { dealerId: id, dealerName: dealer?.dealerName || "Dealer", area: dealer?.area, city: dealer?.city, purchaseAmount: 0, orderCount: 0, unitsPurchased: 0 };
+    acc[id].purchaseAmount += Number(order.totalAmount || 0);
+    acc[id].orderCount += 1;
+    acc[id].unitsPurchased += (order.items || []).reduce((sum, item) => sum + Number(item.quantity || 0), 0);
+    return acc;
+  }, {}));
+  const totalUnitsPurchased = orderItems.reduce((sum, item) => sum + Number(item.quantity || 0), 0);
+  const currentInventoryQuantity = inventory.reduce((sum, item) => sum + Number(item.quantity || 0), 0);
+  const totalPurchaseAmount = orders.reduce((sum, order) => sum + Number(order.totalAmount || 0), 0);
 
   res.json({
     filters: {
       areas: areasRows.map((row) => row.area || "Unassigned"),
-      dealers
+      cities: citiesRows.map((row) => row.city).filter(Boolean),
+      dealers,
+      products: productRows
     },
     summary: {
       totalOrders: orders.length,
       approvedOrders: orders.filter((order) => order.status === "approved").length,
       deliveredOrders: orders.filter((order) => order.status === "delivered").length,
+      pendingOrders: orders.filter((order) => order.status === "pending").length,
       rejectedOrders: orders.filter((order) => order.status === "rejected").length,
-      totalPurchaseAmount: orders.reduce((sum, order) => sum + Number(order.totalAmount || 0), 0),
+      totalPurchaseAmount,
+      totalUnitsPurchased,
+      averageOrderValue: orders.length ? totalPurchaseAmount / orders.length : 0,
       totalPaidAmount: paidAmount,
       pendingPaymentAmount: pendingAmount,
       totalSalesUnits: sales.reduce((sum, sale) => sum + Number(sale.quantitySold || 0), 0),
       currentInventoryValue: inventoryValue,
+      currentInventoryQuantity,
       lowStockProducts: inventory.filter((item) => Number(item.quantity || 0) <= Number(item.lowStockLimit || 0)).length,
       creditCoinsEarned: Number(wallet?.totalEarned || 0),
       creditCoinsRedeemed: Number(wallet?.totalRedeemed || 0),
@@ -903,13 +1185,17 @@ exports.dealerPerformance = asyncHandler(async (req, res) => {
       paymentStatus: [
         { status: "paid", count: payments.filter((payment) => payment.paymentStatus === "paid").length },
         { status: "pending", count: payments.filter((payment) => payment.paymentStatus === "pending").length },
-        { status: "cash", count: payments.filter((payment) => payment.paymentMethod === "cash").length },
-        { status: "online", count: payments.filter((payment) => payment.paymentMethod === "online").length }
+        { status: "failed", count: payments.filter((payment) => payment.paymentStatus === "failed").length }
       ].filter((row) => row.count > 0),
       orderStatus: countBy(orders, (order) => order.status),
       productWisePurchases: productWise(orderItems, (item) => item.quantity),
       productWiseSales: productWise(sales, (sale) => sale.quantitySold),
       creditEarnedRedeemed: creditByMonth
+    },
+    topDealers: {
+      byPurchase: [...dealerPerformance].sort((a, b) => b.purchaseAmount - a.purchaseAmount).slice(0, 5),
+      byOrders: [...dealerPerformance].sort((a, b) => b.orderCount - a.orderCount).slice(0, 5),
+      byUnits: [...dealerPerformance].sort((a, b) => b.unitsPurchased - a.unitsPurchased).slice(0, 5)
     },
     tables: {
       recentOrders: orders.slice(0, 10),

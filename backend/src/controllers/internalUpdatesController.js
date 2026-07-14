@@ -3,7 +3,7 @@ const asyncHandler = require("../utils/asyncHandler");
 const { InternalNotification } = require("../models");
 
 function visibilityWhere(user) {
-  if (["SUPER_ADMIN", "SUPER_ADMIN_CEO", "SUPER_ADMIN_IT_MANAGER", "SUPER_ADMIN_SALES_MANAGER", "SUPER_ADMIN_FINANCE_MANAGER"].includes(user.role)) {
+  if (["SUPER_ADMIN", "SUPER_ADMIN_CEO"].includes(user.role)) {
     return {
       [Op.or]: [
         { roleTarget: "SUPER_ADMIN" },

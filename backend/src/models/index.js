@@ -34,10 +34,16 @@ const Company = sequelize.define("Company", {
   companyName: { type: DataTypes.STRING, allowNull: false },
   category: { type: DataTypes.STRING, allowNull: false },
   description: DataTypes.TEXT,
+  phone: { type: DataTypes.STRING, allowNull: true },
+  address: { type: DataTypes.TEXT, allowNull: true },
+  city: { type: DataTypes.STRING, allowNull: true },
+  state: { type: DataTypes.STRING, allowNull: true },
+  pincode: { type: DataTypes.STRING, allowNull: true },
   adminName: { type: DataTypes.STRING, allowNull: false },
   adminEmail: { type: DataTypes.STRING, allowNull: false, validate: { isEmail: true } },
+  adminPhone: { type: DataTypes.STRING, allowNull: true },
   startDate: { type: DataTypes.DATEONLY, allowNull: false },
-  endDate: { type: DataTypes.DATEONLY, allowNull: false },
+  endDate: { type: DataTypes.DATEONLY, allowNull: true },
   paymentStatus: { type: DataTypes.ENUM("PENDING", "PAID", "REJECTED"), allowNull: false, defaultValue: "PAID" },
   subscriptionAmount: { type: DataTypes.DECIMAL(12, 2), allowNull: false, defaultValue: 0 },
   approvedByFinance: { type: DataTypes.INTEGER, allowNull: true },
@@ -47,7 +53,7 @@ const Company = sequelize.define("Company", {
   selectedLicenseQuantity: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 1 },
   licenseDeliveredAt: { type: DataTypes.DATE, allowNull: true },
   salesNotes: { type: DataTypes.TEXT, allowNull: true },
-  status: { type: DataTypes.ENUM("active", "expired", "blocked", "pending", "rejected"), defaultValue: "active" }
+  status: { type: DataTypes.ENUM("active", "inactive", "deleted", "expired", "blocked", "pending", "rejected"), defaultValue: "active" }
 });
 
 const LicensePlan = sequelize.define("LicensePlan", {
@@ -174,6 +180,8 @@ const Product = sequelize.define("Product", {
   sku: { type: DataTypes.STRING, allowNull: false },
   category: DataTypes.STRING,
   description: DataTypes.TEXT,
+  manufacturingDate: { type: DataTypes.DATEONLY, allowNull: true },
+  expiryDate: { type: DataTypes.DATEONLY, allowNull: true },
   price: { type: DataTypes.DECIMAL(12, 2), allowNull: false, defaultValue: 0 },
   creditCoins: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
   variantEnabled: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: true },

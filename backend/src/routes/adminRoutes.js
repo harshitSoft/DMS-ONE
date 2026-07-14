@@ -11,6 +11,7 @@ const {
 } = require("../middleware/roles");
 const { productImageUpload, invoiceUpload, creditRewardUpload } = require("../middleware/upload");
 const { hasAdminManagers } = require("../utils/managerAssignment");
+const { licenseSystemEnabled } = require("../utils/featureFlags");
 
 const readRules = [
   { pattern: /^\/(?:dashboard|company|policies)(?:\/|$)/, roles: ADMIN_READ_ROLES },
@@ -59,10 +60,12 @@ router.use(protect, permit(...ADMIN_READ_ROLES), requireCompanyScope, adminSecti
 router.get("/dashboard", ctrl.dashboard);
 router.get("/dashboard/analytics", ctrl.analytics);
 router.get("/company", ctrl.company);
-router.get("/license-status", ctrl.licenseStatus);
-router.post("/license-requests", ctrl.createLicenseRequest);
+router.get("/license-status", licenseSystemEnabled() ? ctrl.licenseStatus : (req, res) => res.status(410).json({ message: "The license system is no longer active." }));
+router.post("/license-requests", licenseSystemEnabled() ? ctrl.createLicenseRequest : (req, res) => res.status(410).json({ message: "The license system is no longer active." }));
 router.route("/dealers").get(ctrl.dealers).post(ctrl.createDealer);
+router.get("/dealers/:id", ctrl.getDealer);
 router.route("/dealers/:id").put(ctrl.updateDealer).delete(ctrl.deleteDealer);
+router.patch("/dealers/:id/status", ctrl.setDealerStatus);
 router.route("/products").get(ctrl.products).post(productImageUpload.single("image"), ctrl.createProduct);
 router.put("/products/:id", productImageUpload.single("image"), ctrl.updateProduct);
 router.delete("/products/:id", ctrl.deleteProduct);

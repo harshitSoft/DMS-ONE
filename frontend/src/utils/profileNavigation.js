@@ -7,11 +7,8 @@ const adminCeoTransferTabs = dealerStockExchangeEnabled ? [
 ] : [];
 
 export const roleRoutes = {
-  SUPER_ADMIN: "/super-admin",
-  SUPER_ADMIN_CEO: "/super-admin-ceo",
-  SUPER_ADMIN_IT_MANAGER: "/super-admin-it",
-  SUPER_ADMIN_SALES_MANAGER: "/super-admin-sales",
-  SUPER_ADMIN_FINANCE_MANAGER: "/super-admin-finance",
+  SUPER_ADMIN: "/super-admin/dashboard",
+  SUPER_ADMIN_CEO: "/super-admin/dashboard",
   ADMIN: "/admin",
   ADMIN_CEO: "/admin",
   DEALER_MANAGER: "/admin",
@@ -27,37 +24,13 @@ export const roleRoutes = {
 export const roleTabs = {
   SUPER_ADMIN: [
     { id: "dashboard", label: "Dashboard", icon: "dashboard" },
-    { id: "companies", label: "Companies", icon: "companies" },
-    { id: "create", label: "Create Company", icon: "companies" }
+    { id: "create-organization", label: "Create Organization", icon: "companies" },
+    { id: "organizations", label: "Organizations", icon: "companies" }
   ],
   SUPER_ADMIN_CEO: [
     { id: "dashboard", label: "Dashboard", icon: "dashboard" },
-    { id: "companies", label: "Companies", icon: "companies" },
-    { id: "managers", label: "Managers", icon: "dealers" },
-    { id: "licenses", label: "License Overview", icon: "inventory" },
-    { id: "targets", label: "Targets", icon: "reports" },
-    { id: "pinned", label: "Pinned Messages", icon: "messages" },
-    { id: "chat", label: "Chat", icon: "messages" }
-  ],
-  SUPER_ADMIN_IT_MANAGER: [
-    { id: "dashboard", label: "Dashboard", icon: "dashboard" },
-    { id: "inventory", label: "License Inventory", icon: "inventory" },
-    { id: "plans", label: "License Plans", icon: "products" },
-    { id: "chat", label: "Chat", icon: "messages" }
-  ],
-  SUPER_ADMIN_SALES_MANAGER: [
-    { id: "dashboard", label: "Dashboard", icon: "dashboard" },
-    { id: "createdCompanies", label: "Created Companies", icon: "companies" },
-    { id: "requests", label: "License Requests", icon: "orders" },
-    { id: "pending", label: "Pending Sales", icon: "finance" },
-    { id: "confirmed", label: "Confirmed Sales", icon: "credits" },
-    { id: "chat", label: "Chat", icon: "messages" }
-  ],
-  SUPER_ADMIN_FINANCE_MANAGER: [
-    { id: "dashboard", label: "Dashboard", icon: "dashboard" },
-    { id: "payments", label: "Payment Requests", icon: "finance" },
-    { id: "revenue", label: "Revenue", icon: "credits" },
-    { id: "chat", label: "Chat", icon: "messages" }
+    { id: "create-organization", label: "Create Organization", icon: "companies" },
+    { id: "organizations", label: "Organizations", icon: "companies" }
   ],
   ADMIN: [
     { id: "dashboard", label: "Dashboard", icon: "dashboard" },
@@ -79,7 +52,6 @@ export const roleTabs = {
     { id: "dashboard", label: "Dashboard", icon: "dashboard" },
     { id: "adminManagers", label: "Managers", icon: "dealers" },
     { id: "dealersOverview", label: "Dealers Overview", icon: "dealers" },
-    { id: "licenseOverview", label: "License Overview", icon: "credits" },
     { id: "productOverview", label: "Product Overview", icon: "products" },
     { id: "orderOverview", label: "Order Overview", icon: "orders" },
     { id: "deliveryOverview", label: "Delivery Overview", icon: "delivery" },
@@ -95,7 +67,6 @@ export const roleTabs = {
     { id: "dashboard", label: "Dashboard", icon: "dashboard" },
     { id: "dealers", label: "Dealer Management", icon: "dealers" },
     { id: "dealerPerformance", label: "Dealer Performance", icon: "performance" },
-    { id: "licenseUpgrade", label: "License Status", icon: "credits" },
     { id: "creditManagement", label: "Credit Store / Coins", icon: "credits" },
     { id: "adminChat", label: "Internal Team Chat", icon: "messages" },
     { id: "internalUpdates", label: "Internal Updates", icon: "internalUpdates" }

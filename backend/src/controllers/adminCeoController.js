@@ -32,9 +32,8 @@ function publicManager(user) {
 }
 
 async function companySummary(companyId) {
-  const [company, license, dealerCount, products, orders, payments, wallets, rewards, redemptions] = await Promise.all([
+  const [company, dealerCount, products, orders, payments, wallets, rewards, redemptions] = await Promise.all([
     Company.findByPk(companyId),
-    licenseCapacity(companyId),
     Dealer.count({ where: { companyId } }),
     Product.count({ where: { companyId } }),
     Order.findAll({ where: { companyId }, attributes: ["status", "totalAmount", "deliveryDate", "createdAt"] }),
@@ -57,7 +56,6 @@ async function companySummary(companyId) {
       rewards: rewards.length,
       pendingRedemptions: redemptions.filter((row) => row.status === "PENDING").length
     },
-    license,
     orderStatus: orders.reduce((acc, order) => {
       acc[order.status] = (acc[order.status] || 0) + 1;
       return acc;
@@ -71,8 +69,7 @@ exports.dashboard = asyncHandler(async (req, res) => {
 
 exports.dealersOverview = asyncHandler(async (req, res) => {
   const companyId = req.user.companyId;
-  const [license, dealers, orders, sales, payments, wallets] = await Promise.all([
-    licenseCapacity(companyId),
+  const [dealers, orders, sales, payments, wallets] = await Promise.all([
     Dealer.findAll({ where: { companyId }, order: [["createdAt", "DESC"]] }),
     Order.findAll({ where: { companyId }, attributes: ["dealerId", "totalAmount", "status"] }),
     DealerSale.findAll({ where: { companyId }, attributes: ["dealerId", "quantitySold"] }),
@@ -112,9 +109,6 @@ exports.dealersOverview = asyncHandler(async (req, res) => {
       totalDealers: dealers.length,
       activeDealers: dealers.filter((dealer) => dealer.status === "active").length,
       blockedDealers: dealers.filter((dealer) => dealer.status === "blocked").length,
-      dealerCapacity: license.capacity,
-      usedLicenseSlots: license.dealerCount,
-      remainingLicenseSlots: license.remainingSlots,
       topPerformingDealers: rows.slice().sort((a, b) => b.totalSales - a.totalSales).slice(0, 5)
     },
     cityCounts,

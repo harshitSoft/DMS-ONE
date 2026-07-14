@@ -3,6 +3,7 @@ const cors = require("cors");
 const helmet = require("helmet");
 const rateLimit = require("express-rate-limit");
 const path = require("path");
+const { superAdminManagerRolesEnabled } = require("./utils/featureFlags");
 
 const app = express();
 
@@ -38,11 +39,17 @@ app.use(rateLimit({ windowMs: 15 * 60 * 1000, max: 600 }));
 app.get("/api/health", (req, res) => res.json({ status: "ok", service: "DMS API" }));
 app.use("/api/auth", require("./routes/authRoutes"));
 app.use("/api/super-admin", require("./routes/superAdminRoutes"));
-app.use("/api/super-admin-ceo", require("./routes/superAdminCeoRoutes"));
-app.use("/api/super-admin-it", require("./routes/superAdminItRoutes"));
-app.use("/api/super-admin-sales", require("./routes/superAdminSalesRoutes"));
-app.use("/api/super-admin-finance", require("./routes/superAdminFinanceRoutes"));
-app.use("/api/super-admin-chat", require("./routes/superAdminChatRoutes"));
+if (superAdminManagerRolesEnabled()) {
+  app.use("/api/super-admin-ceo", require("./routes/superAdminCeoRoutes"));
+  app.use("/api/super-admin-it", require("./routes/superAdminItRoutes"));
+  app.use("/api/super-admin-sales", require("./routes/superAdminSalesRoutes"));
+  app.use("/api/super-admin-finance", require("./routes/superAdminFinanceRoutes"));
+  app.use("/api/super-admin-chat", require("./routes/superAdminChatRoutes"));
+} else {
+  app.use(["/api/super-admin-ceo", "/api/super-admin-it", "/api/super-admin-sales", "/api/super-admin-finance", "/api/super-admin-chat"], (req, res) => {
+    res.status(410).json({ message: "This Super Admin manager feature is no longer active." });
+  });
+}
 app.use("/api/admin/stock-transfer-requests", require("./routes/stockTransferAdminRoutes"));
 app.use("/api/admin", require("./routes/adminRoutes"));
 app.use("/api/admin-ceo/stock-transfer-requests", require("./routes/stockTransferAdminCeoRoutes"));

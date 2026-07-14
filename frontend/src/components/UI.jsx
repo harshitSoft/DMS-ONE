@@ -257,8 +257,8 @@ export function FormSelect(props) {
   return <Select {...props} />;
 }
 
-export function FormGrid({ children, onSubmit, className }) {
-  return <form onSubmit={onSubmit} className={clsx("grid gap-4 md:grid-cols-2", className)}>{children}</form>;
+export function FormGrid({ children, onSubmit, className, ...props }) {
+  return <form onSubmit={onSubmit} className={clsx("grid gap-4 md:grid-cols-2", className)} {...props}>{children}</form>;
 }
 
 export function SearchFilterBar({ search, onSearch, placeholder = "Search", children }) {

@@ -1,9 +1,6 @@
 export const dashboardRouteByRole = {
-  SUPER_ADMIN: "/super-admin",
-  SUPER_ADMIN_CEO: "/super-admin-ceo",
-  SUPER_ADMIN_IT_MANAGER: "/super-admin-it",
-  SUPER_ADMIN_SALES_MANAGER: "/super-admin-sales",
-  SUPER_ADMIN_FINANCE_MANAGER: "/super-admin-finance",
+  SUPER_ADMIN: "/super-admin/dashboard",
+  SUPER_ADMIN_CEO: "/super-admin/dashboard",
   ADMIN: "/admin",
   ADMIN_CEO: "/admin",
   DEALER_MANAGER: "/admin",
