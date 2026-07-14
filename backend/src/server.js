@@ -3,6 +3,7 @@ const app = require("./app");
 const { sequelize } = require("./models");
 const ensureDatabase = require("./utils/ensureDatabase");
 const migrateMissingColumns = require("./utils/migrateMissingColumns");
+const { ensureSuperAdminAccount } = require("./utils/ensureSuperAdminAccount");
 const { startScheduledMessagesJob } = require("./jobs/scheduledMessagesJob");
 
 const PORT = process.env.PORT || 5000;
@@ -13,6 +14,7 @@ const PORT = process.env.PORT || 5000;
     await sequelize.authenticate();
     await sequelize.sync();
     await migrateMissingColumns();
+    await ensureSuperAdminAccount();
     startScheduledMessagesJob();
     app.listen(PORT, () => console.log(`DMS API running on port ${PORT}`));
   } catch (error) {

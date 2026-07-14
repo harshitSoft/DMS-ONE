@@ -66,13 +66,18 @@ async function serializeOrganizations(companies) {
 
 exports.dashboard = asyncHandler(async (req, res) => {
   const visible = { status: { [Op.ne]: "deleted" } };
-  const [companies, totalDealers, monthlyRows, categoryRows, dealerRows] = await Promise.all([
+  const [companies, totalDealers, categoryRows, dealerRows] = await Promise.all([
     Company.findAll({ where: visible, order: [["createdAt", "DESC"]] }),
     Dealer.count(),
-    Company.findAll({ where: visible, attributes: [[fn("DATE_FORMAT", col("createdAt"), "%Y-%m"), "month"], [fn("COUNT", col("id")), "count"]], group: [fn("DATE_FORMAT", col("createdAt"), "%Y-%m")], order: [[fn("DATE_FORMAT", col("createdAt"), "%Y-%m"), "ASC"]] }),
     Company.findAll({ where: visible, attributes: ["category", [fn("COUNT", col("id")), "count"]], group: ["category"] }),
     Dealer.findAll({ attributes: ["companyId", [fn("COUNT", col("id")), "count"]], group: ["companyId"] })
   ]);
+  const organizationsByMonthMap = companies.reduce((acc, company) => {
+    const createdAt = company.createdAt ? new Date(company.createdAt) : null;
+    const month = createdAt && !Number.isNaN(createdAt.getTime()) ? createdAt.toISOString().slice(0, 7) : "Unknown";
+    acc[month] = (acc[month] || 0) + 1;
+    return acc;
+  }, {});
   const totalAdminCeos = await User.count({ where: { role: { [Op.in]: adminRoles }, companyId: { [Op.in]: companies.map((company) => company.id) } } });
   const organizations = await serializeOrganizations(companies);
   const dealerMap = Object.fromEntries(dealerRows.map((row) => [row.companyId, Number(row.get("count") || 0)]));
@@ -82,7 +87,7 @@ exports.dashboard = asyncHandler(async (req, res) => {
     inactiveOrganizations: companies.filter((company) => !activeStatuses.includes(company.status)).length,
     totalAdminCeos,
     totalDealers,
-    organizationsByMonth: monthlyRows.map((row) => ({ month: row.get("month"), count: Number(row.get("count") || 0) })),
+    organizationsByMonth: Object.entries(organizationsByMonthMap).sort(([a], [b]) => a.localeCompare(b)).map(([month, count]) => ({ month, count })),
     statusDistribution: [
       { status: "Active", count: companies.filter((company) => activeStatuses.includes(company.status)).length },
       { status: "Inactive", count: companies.filter((company) => !activeStatuses.includes(company.status)).length }
