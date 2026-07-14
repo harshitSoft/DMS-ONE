@@ -26,7 +26,6 @@ const tabs = [
   { id: "delivery", label: "Delivery", icon: "delivery" },
   { id: "finance", label: "Finance", icon: "finance" },
   { id: "creditManagement", label: "Credit Management", icon: "credits" },
-  { id: "licenseUpgrade", label: "License Status / Upgrade", icon: "credits" },
   { id: "dealerSales", label: "Dealer Sales", icon: "reports" },
   { id: "messages", label: "Messages", icon: "messages" },
   { id: "internalUpdates", label: "Internal Updates", icon: "internalUpdates" },
@@ -69,11 +68,11 @@ export default function Admin() {
     setLoadError("");
     const shared = ["dashboard", "dashboard/analytics", "company", "policies", "messages", "messages/conversations"];
     const endpointByRole = {
-      DEALER_MANAGER: [...shared, "dealers", "reports", "dealer-sales", "dealer-performance", "license-status"],
+      DEALER_MANAGER: [...shared, "dealers", "reports", "dealer-sales", "dealer-performance"],
       PRODUCT_DELIVERY_MANAGER: [...shared, "products", "orders", "stock/dealers"],
       FINANCE_MANAGER: [...shared, "payments", "finance/approved-orders", "finance/payments", "credit/summary", "credit/dealer-wallets"]
     };
-    const endpoints = endpointByRole[user?.role] || [...shared, "dealers", "products", "orders", "payments", "reports", "stock/dealers", "dealer-sales", "finance/approved-orders", "finance/payments", "dealer-performance", "credit/summary", "credit/rewards", "credit/redemptions", "credit/dealer-wallets", "license-status"];
+    const endpoints = endpointByRole[user?.role] || [...shared, "dealers", "products", "orders", "payments", "reports", "stock/dealers", "dealer-sales", "finance/approved-orders", "finance/payments", "dealer-performance", "credit/summary", "credit/rewards", "credit/redemptions", "credit/dealer-wallets"];
     const result = await Promise.allSettled([
       ...endpoints.map((e) => api.get(`/admin/${e}`)),
       api.get("/internal-updates")
@@ -114,16 +113,6 @@ export default function Admin() {
       setDealerError(message);
       if (error.response?.data?.code === "LICENSE_LIMIT_REACHED") setActiveTab("licenseUpgrade");
       alert(message);
-    }
-  };
-
-  const requestLicense = async (licensePlanId) => {
-    try {
-      await api.post("/admin/license-requests", { licensePlanId, quantity: 1 });
-      alert("Your license request has been sent to the sales team.");
-      load();
-    } catch (error) {
-      alert(error.response?.data?.message || "Unable to request license");
     }
   };
 
@@ -274,9 +263,6 @@ export default function Admin() {
           </Section>
           <SimpleTable title="Area-wise dealer list" rows={data.dealers} cols={["dealerName", "ownerName", "email", "area", "city", "pincode", "status"]} />
         </>
-      )}
-      {activeTab === "licenseUpgrade" && (
-        <LicenseUpgrade status={data["license-status"]} requestLicense={requestLicense} />
       )}
       {activeTab === "products" && (
         <>
@@ -1246,49 +1232,6 @@ function AdminTeamChat() {
       <Section title={selected ? `Internal team chat - ${selected.name}` : "Internal team chat"}>
         {selected ? <><div className="mb-4 h-[28rem] space-y-3 overflow-y-auto rounded-2xl border border-slate-200 bg-gradient-to-b from-slate-50 to-white p-4">{messages.length ? messages.map((m) => { const mine = Number(m.senderId) === Number(user?.id); return <div key={m.id} className={`flex ${mine ? "justify-end" : "justify-start"}`}><div className={`max-w-[78%] rounded-2xl px-4 py-3 text-sm shadow-sm ${mine ? "bg-indigo-600 text-white" : "border border-slate-200 bg-white text-slate-800"}`}><p className={`mb-1 text-xs font-bold ${mine ? "text-indigo-100" : "text-slate-500"}`}>{mine ? "You" : m.sender?.name || "Team member"}</p><p className="leading-6">{m.message}</p><p className={`mt-2 text-[11px] ${mine ? "text-indigo-100" : "text-slate-400"}`}>{new Date(m.createdAt).toLocaleString()}</p></div></div>; }) : <Empty text="No messages yet. Start the conversation." />}</div><form onSubmit={send} className="flex gap-2 rounded-2xl border border-slate-200 bg-white p-2 shadow-sm"><input className="flex-1 rounded-xl border-0 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-indigo-100" value={text} onChange={(e) => setText(e.target.value)} placeholder={`Message ${selected.name}`} required /><Button>Send</Button></form></> : <Empty text="Select a team member to open chat" />}
       </Section>
-    </div>
-  );
-}
-
-function LicenseUpgrade({ status, requestLicense }) {
-  const plans = status?.plans || [];
-  return (
-    <div className="space-y-6">
-      <Section title="License Status / Upgrade">
-        <div className="rounded-md border border-indigo-100 bg-indigo-50 p-5">
-          <h2 className="text-lg font-semibold text-slate-950">Great to see your business growing.</h2>
-          <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-700">To add more dealers, purchase an additional license and continue expanding your dealer network.</p>
-        </div>
-        <div className="mt-4 grid gap-4 md:grid-cols-3">
-          {[
-            ["Current dealers", status?.dealerCount || 0],
-            ["Current license capacity", status?.capacity || 0],
-            ["Remaining dealer slots", status?.remainingSlots || 0]
-          ].map(([label, value]) => (
-            <div key={label} className="rounded-md border border-slate-200 bg-white p-4 shadow-soft">
-              <p className="text-sm font-semibold text-slate-500">{label}</p>
-              <p className="mt-2 text-2xl font-bold text-slate-950">{value}</p>
-            </div>
-          ))}
-        </div>
-      </Section>
-      <div className="grid gap-4 md:grid-cols-2">
-        {plans.map((plan) => (
-          <div key={plan.id} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-card transition duration-200 hover:-translate-y-1 hover:shadow-card-hover">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <p className="text-xl font-semibold text-slate-950">{plan.name} License</p>
-                <p className="mt-2 text-sm text-slate-600">{plan.dealerLimit} additional dealers</p>
-                <p className="mt-3 text-2xl font-bold text-indigo-700">{formatMoney(plan.price)}</p>
-              </div>
-              <StatusBadge value={plan.status} />
-            </div>
-            <p className="mt-4 min-h-12 text-sm leading-6 text-slate-600">{plan.description}</p>
-            <Button className="mt-4" onClick={() => requestLicense(plan.id)}>Request More License</Button>
-          </div>
-        ))}
-      </div>
-      <SimpleTable title="Pending license requests" rows={status?.pendingRequests || []} cols={["status", "quantity", "totalDealerLimit", "amount", "createdAt"]} />
     </div>
   );
 }

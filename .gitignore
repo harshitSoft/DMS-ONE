@@ -1,0 +1,22 @@
+# Dependencies
+**/node_modules/
+
+# Generated builds and test output
+**/dist/
+**/coverage/
+
+# Local configuration and secrets
+**/.env
+**/.env.*
+!**/.env.example
+
+# Runtime uploads and logs
+backend/uploads/
+*.log
+
+# Editor and operating-system files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
