@@ -2,16 +2,12 @@ const { Op, fn, col } = require("sequelize");
 const asyncHandler = require("../utils/asyncHandler");
 const {
   AdminInternalMessage,
-  AdminPinnedMessage,
   Company,
-  CompanyLicense,
   CreditRedemption,
   CreditReward,
   Dealer,
   DealerCreditWallet,
   DealerSale,
-  LicensePlan,
-  LicensePurchaseRequest,
   Message,
   Order,
   OrderItem,
@@ -21,7 +17,6 @@ const {
   CompanyInventory,
   User
 } = require("../models");
-const { licenseCapacity } = require("../utils/licenseService");
 const { hasAdminManagers } = require("../utils/managerAssignment");
 
 const adminManagerRoles = ["DEALER_MANAGER", "PRODUCT_DELIVERY_MANAGER", "FINANCE_MANAGER"];
@@ -117,13 +112,6 @@ exports.dealersOverview = asyncHandler(async (req, res) => {
   });
 });
 
-exports.licenseOverview = asyncHandler(async (req, res) => {
-  const license = await licenseCapacity(req.user.companyId);
-  const gold = license.licenses.filter((row) => row.LicensePlan?.name === "Gold").reduce((sum, row) => sum + Number(row.quantity || 0), 0);
-  const platinum = license.licenses.filter((row) => row.LicensePlan?.name === "Platinum").reduce((sum, row) => sum + Number(row.quantity || 0), 0);
-  res.json({ ...license, goldLicenses: gold, platinumLicenses: platinum, usagePercent: license.capacity ? Math.round((license.dealerCount / license.capacity) * 100) : 0 });
-});
-
 exports.productOverview = asyncHandler(async (req, res) => {
   const companyId = req.user.companyId;
   const [products, sales] = await Promise.all([
@@ -194,11 +182,6 @@ exports.financeOverview = asyncHandler(async (req, res) => {
       cashPayments: payments.filter((payment) => payment.paymentMethod === "cash").length,
       onlinePayments: payments.filter((payment) => payment.paymentMethod === "online").length
     },
-    aging: {
-      "0-7": payments.filter((payment) => payment.paymentStatus === "pending" && age(payment) <= 7).length,
-      "8-15": payments.filter((payment) => payment.paymentStatus === "pending" && age(payment) > 7 && age(payment) <= 15).length,
-      "15+": payments.filter((payment) => payment.paymentStatus === "pending" && age(payment) > 15).length
-    },
     payments
   });
 });
@@ -245,13 +228,13 @@ exports.managerPerformance = asyncHandler(async (req, res) => {
 });
 
 exports.createManager = asyncHandler(async (req, res) => {
-  const { name, email, password, phone, role, status = "active" } = req.body;
+  const { name, email, password, phone, role } = req.body;
   if (!name || !email || !password || !role) return res.status(400).json({ message: "Name, email, password and role are required" });
   if (!adminManagerRoles.includes(role)) return res.status(400).json({ message: "Invalid manager role" });
   const normalizedEmail = String(email).trim().toLowerCase();
   const existing = await User.findOne({ where: { email: normalizedEmail } });
   if (existing) return res.status(409).json({ message: "Email already exists" });
-  const manager = await User.create({ name, email: normalizedEmail, phone: phone || null, password, role, status, companyId: req.user.companyId });
+  const manager = await User.create({ name, email: normalizedEmail, phone: phone || null, password, role, status: "active", companyId: req.user.companyId });
   res.status(201).json(publicManager(manager));
 });
 

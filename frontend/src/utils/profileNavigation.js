@@ -57,10 +57,8 @@ export const roleTabs = {
     { id: "deliveryOverview", label: "Delivery Overview", icon: "delivery" },
     { id: "financeOverview", label: "Finance Overview", icon: "finance" },
     { id: "creditOverview", label: "Credit Overview", icon: "credits" },
-    { id: "managerPerformance", label: "Manager Work", icon: "performance" },
     ...adminCeoTransferTabs,
     { id: "adminChat", label: "Internal Team Chat", icon: "messages" },
-    { id: "adminPinned", label: "Pinned Messages", icon: "messages" },
     { id: "internalUpdates", label: "Internal Updates", icon: "internalUpdates" }
   ],
   DEALER_MANAGER: [

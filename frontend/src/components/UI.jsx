@@ -209,9 +209,10 @@ export function PageHeader({ eyebrow, title, description, actions }) {
 export function StatusBadge({ value }) {
   const normalized = String(value || "").toLowerCase();
   const tone = statusTones[normalized] || "border-slate-200 bg-slate-50 text-slate-600";
+  const label = String(value || "-").replaceAll("_", " ").toLowerCase().replace(/\b\w/g, (letter) => letter.toUpperCase());
   return (
-    <span className={clsx("inline-flex items-center whitespace-nowrap rounded-full border px-2.5 py-1 text-xs font-bold capitalize shadow-sm", tone)}>
-      {String(value || "-").replaceAll("_", " ")}
+    <span className={clsx("inline-flex items-center whitespace-nowrap rounded-full border px-2.5 py-1 text-xs font-bold shadow-sm", tone)}>
+      {label}
     </span>
   );
 }

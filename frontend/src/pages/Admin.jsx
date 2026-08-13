@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { AlertTriangle, CheckCircle2, Clock, Gift, IndianRupee, PackageCheck, Star, Truck, Users } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Clock, Gift, IndianRupee, PackageCheck, Pencil, Star, Trash2, Truck, Users, X } from "lucide-react";
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, Legend, Pie, PieChart, PolarAngleAxis, PolarGrid, PolarRadiusAxis, Radar, RadarChart, RadialBar, RadialBarChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import Layout from "../components/Layout";
 import { api, fileUrl } from "../api/client";
@@ -239,15 +239,12 @@ export default function Admin() {
       {activeTab === "dashboard" && (user?.role === "ADMIN_CEO" ? <AdminCeoReadOnlyOverview endpoint="/admin-ceo/dashboard" type="dashboard" /> : user?.role === "PRODUCT_DELIVERY_MANAGER" ? <ProductDeliveryManagerDashboard analytics={data.dashboard_analytics} products={data.products || []} orders={data.orders || []} dealerStock={data.stock_dealers || []} fallbackCards={dashboardCards} /> : user?.role === "FINANCE_MANAGER" ? <FinanceManagerDashboard analytics={data.dashboard_analytics} payments={data.finance_payments?.payments || []} stats={data.finance_payments?.stats || {}} fallbackCards={dashboardCards} /> : <AdminAnalytics analytics={data.dashboard_analytics} fallbackCards={dashboardCards} />)}
       {activeTab === "adminManagers" && <AdminManagers />}
       {activeTab === "adminChat" && <AdminTeamChat />}
-      {activeTab === "adminPinned" && ["ADMIN", "ADMIN_CEO"].includes(user?.role) && <AdminPinnedMessages />}
       {activeTab === "dealersOverview" && <AdminCeoReadOnlyOverview endpoint="/admin-ceo/dealers-overview" type="dealers" />}
-      {activeTab === "licenseOverview" && <AdminCeoReadOnlyOverview endpoint="/admin-ceo/license-overview" type="license" />}
       {activeTab === "productOverview" && <AdminCeoReadOnlyOverview endpoint="/admin-ceo/product-overview" type="products" />}
       {activeTab === "orderOverview" && <AdminCeoReadOnlyOverview endpoint="/admin-ceo/order-overview" type="orders" />}
       {activeTab === "deliveryOverview" && <AdminCeoReadOnlyOverview endpoint="/admin-ceo/delivery-overview" type="delivery" />}
       {activeTab === "financeOverview" && <AdminCeoReadOnlyOverview endpoint="/admin-ceo/finance-overview" type="finance" />}
       {activeTab === "creditOverview" && <AdminCeoReadOnlyOverview endpoint="/admin-ceo/credit-overview" type="credit" />}
-      {activeTab === "managerPerformance" && <AdminCeoReadOnlyOverview endpoint="/admin-ceo/manager-performance" type="managers" />}
       {activeTab === "transferApprovals" && <AdminCeoTransferApprovals />}
       {activeTab === "transferHistory" && <AdminCeoTransferHistory />}
       {activeTab === "interDealerRequests" && <InterDealerRequests />}
@@ -807,7 +804,8 @@ function CreditManagement({ data, form, setForm, preview, setPreview, setImage, 
 }
 
 function SimpleTable({ title, rows = [], cols, renderCell }) {
-  return <Section title={title}>{rows.length ? <div className="overflow-x-auto"><table className="w-full text-left text-sm"><thead className="bg-slate-50 text-slate-500"><tr>{cols.map((c) => <th className="p-3" key={c}>{c}</th>)}</tr></thead><tbody>{rows.map((row, i) => <tr className={`border-t border-slate-100 ${i % 2 ? "bg-stone-50/70" : "bg-white"} hover:bg-slate-50`} key={row.id || i}>{cols.map((c) => <td className="p-3" key={c}>{renderCell ? renderCell(row, c) : String(row[c] ?? "")}</td>)}</tr>)}</tbody></table></div> : <Empty />}</Section>;
+  const columnLabel = (column) => column.replace(/([a-z0-9])([A-Z])/g, "$1 $2").replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+  return <Section title={title}>{rows.length ? <div className="overflow-x-auto"><table className="w-full text-left text-sm"><thead className="bg-slate-50 text-slate-500"><tr>{cols.map((c) => <th className="p-3" key={c}>{columnLabel(c)}</th>)}</tr></thead><tbody>{rows.map((row, i) => <tr className={`border-t border-slate-100 ${i % 2 ? "bg-stone-50/70" : "bg-white"} hover:bg-slate-50`} key={row.id || i}>{cols.map((c) => <td className="p-3" key={c}>{renderCell ? renderCell(row, c) : String(row[c] ?? "")}</td>)}</tr>)}</tbody></table></div> : <Empty />}</Section>;
 }
 
 function AdminDealerSales({ data = {} }) {
@@ -983,27 +981,6 @@ function DeliveryManagement({ rows = [], updateOrder, filter = "all", setFilter,
   );
 }
 
-function PinnedTaskBanner() {
-  const [pins, setPins] = useState([]);
-  useEffect(() => {
-    api.get("/admin-ceo/pinned-messages").then(({ data }) => setPins(data.filter((row) => row.isPinned).slice(0, 3))).catch(() => setPins([]));
-  }, []);
-  if (!pins.length) return null;
-  return (
-    <div className="mb-5 grid gap-3">
-      {pins.map((pin) => (
-        <div key={pin.id} className={`rounded-md border p-4 ${pin.priority === "high" ? "border-rose-200 bg-rose-50 text-rose-800" : pin.priority === "low" ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-amber-200 bg-amber-50 text-amber-800"}`}>
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <p className="font-semibold">{pin.title}</p>
-            <span className="rounded-full bg-white/70 px-2 py-1 text-xs font-bold uppercase">{pin.priority}</span>
-          </div>
-          <p className="mt-1 text-sm">{pin.message}</p>
-        </div>
-      ))}
-    </div>
-  );
-}
-
 function AdminCeoReadOnlyOverview({ endpoint, type }) {
   const [payload, setPayload] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -1048,20 +1025,12 @@ function AdminCeoReadOnlyOverview({ endpoint, type }) {
       {type === "dashboard" && (
         <div className="grid gap-6 xl:grid-cols-2">
           <SimpleTable title="Order Status Overview" rows={Object.entries(payload.orderStatus || {}).map(([status, count]) => ({ status, count }))} cols={["status", "count"]} />
-          <LicenseUsageCard license={payload.license} />
         </div>
       )}
       {type === "dealers" && (
         <>
           <SimpleTable title="Top Performing Dealers" rows={payload.stats?.topPerformingDealers || []} cols={["dealerName", "ownerName", "city", "area", "totalOrders", "totalSales", "pendingPayment", "creditBalance"]} />
           <SimpleTable title="Dealer Details" rows={(payload.dealers || []).map((d) => ({ ...d, location: [d.area, d.city, d.pincode].filter(Boolean).join(", "), actions: d }))} cols={["dealerName", "ownerName", "email", "phone", "location", "address", "status", "totalOrders", "totalSales", "pendingPayment", "creditBalance", "createdAt", "actions"]} renderCell={(row, col) => col === "actions" ? <div className="flex flex-nowrap gap-2"><button className="whitespace-nowrap rounded-md bg-indigo-600 px-2.5 py-1 text-xs font-semibold text-white" onClick={() => alert(`${row.dealerName}\n${row.email}\n${row.location}`)}>View</button><button className={`whitespace-nowrap rounded-md px-2.5 py-1 text-xs font-semibold text-white ${row.status === "active" ? "bg-amber-500" : "bg-emerald-600"}`} onClick={() => controlDealer(row.actions)}>{row.status === "active" ? "Suspend" : "Reactivate"}</button></div> : String(row[col] ?? "")} />
-        </>
-      )}
-      {type === "license" && (
-        <>
-          <LicenseUsageCard license={payload} />
-          <SimpleTable title="Active Licenses" rows={(payload.licenses || []).map((row) => ({ plan: row.LicensePlan?.name, quantity: row.quantity, dealerLimitAdded: row.dealerLimitAdded, status: row.status, activatedAt: row.activatedAt, expiresAt: row.expiresAt }))} cols={["plan", "quantity", "dealerLimitAdded", "status", "activatedAt", "expiresAt"]} />
-          <SimpleTable title="Purchase Requests" rows={payload.pendingRequests || []} cols={["status", "quantity", "totalDealerLimit", "amount", "paymentStatus", "createdAt"]} />
         </>
       )}
       {type === "products" && (
@@ -1080,7 +1049,6 @@ function AdminCeoReadOnlyOverview({ endpoint, type }) {
       {type === "delivery" && <SimpleTable title="Delivery Monitoring" rows={(payload.deliveries || []).map(orderRow)} cols={["dealer", "location", "products", "amount", "status", "orderDate", "deliveryDate"]} />}
       {type === "finance" && (
         <>
-          <SimpleTable title="Payment Aging" rows={Object.entries(payload.aging || {}).map(([range, count]) => ({ range, count }))} cols={["range", "count"]} />
           <SimpleTable title="Dealer-wise Payments" rows={(payload.payments || []).map((p) => ({ dealer: p.Dealer?.dealerName, amount: formatMoney(p.amount), status: p.paymentStatus, method: p.paymentMethod || "-", createdAt: p.createdAt, paidAt: p.paidAt }))} cols={["dealer", "amount", "status", "method", "createdAt", "paidAt"]} />
         </>
       )}
@@ -1091,25 +1059,7 @@ function AdminCeoReadOnlyOverview({ endpoint, type }) {
           <SimpleTable title="Credit Gift Uploads" rows={payload.rewards || []} cols={["title", "requiredCoins", "quantity", "status", "createdAt"]} />
         </>
       )}
-      {type === "managers" && <SimpleTable title="Manager Work Monitoring" rows={payload || []} cols={["name", "email", "role", "status", "actionsCount", "pinnedTasks", "recentActivity", "lastLogin"]} />}
     </div>
-  );
-}
-
-function LicenseUsageCard({ license = {} }) {
-  const percent = license.capacity ? Math.min(100, Math.round((Number(license.dealerCount || 0) / Number(license.capacity || 1)) * 100)) : 0;
-  return (
-    <Section title="License Capacity Usage">
-      <div className="grid gap-4 md:grid-cols-3">
-        <Card label="Capacity" value={license.capacity || 0} />
-        <Card label="Used Slots" value={license.dealerCount || 0} />
-        <Card label="Remaining Slots" value={license.remainingSlots || 0} />
-      </div>
-      <div className="mt-4 h-3 overflow-hidden rounded-full bg-slate-100">
-        <div className="h-full rounded-full bg-indigo-600" style={{ width: `${percent}%` }} />
-      </div>
-      <p className="mt-2 text-sm font-semibold text-slate-600">{percent}% used</p>
-    </Section>
   );
 }
 
@@ -1127,13 +1077,14 @@ function orderRow(order) {
 
 function AdminManagers() {
   const [rows, setRows] = useState([]);
-  const [form, setForm] = useState({ name: "", email: "", phone: "", password: "", role: "DEALER_MANAGER", status: "active" });
+  const [form, setForm] = useState({ name: "", email: "", phone: "", password: "", role: "DEALER_MANAGER" });
+  const [selectedManager, setSelectedManager] = useState(null);
   const load = () => api.get("/admin-ceo/managers").then(({ data }) => setRows(data));
   useEffect(() => { load(); }, []);
   const createManager = async (e) => {
     e.preventDefault();
     await api.post("/admin-ceo/managers", form);
-    setForm({ name: "", email: "", phone: "", password: "", role: "DEALER_MANAGER", status: "active" });
+    setForm({ name: "", email: "", phone: "", password: "", role: "DEALER_MANAGER" });
     load();
   };
   const setStatus = async (id, status) => {
@@ -1160,48 +1111,15 @@ function AdminManagers() {
           <TextField label="Phone" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
           <TextField label="Password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} required />
           <label className="text-sm font-semibold text-slate-600">Role<select className="mt-1 w-full rounded-md border border-slate-200 p-2.5" value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })}><option value="DEALER_MANAGER">Dealer Manager</option><option value="PRODUCT_DELIVERY_MANAGER">Product Delivery Manager</option><option value="FINANCE_MANAGER">Finance Manager</option></select></label>
-          <label className="text-sm font-semibold text-slate-600">Status<select className="mt-1 w-full rounded-md border border-slate-200 p-2.5" value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })}><option value="active">Active</option><option value="inactive">Inactive</option></select></label>
           <div className="md:col-span-2"><Button type="submit"><Plus size={16} /> Create Manager</Button></div>
         </FormGrid>
       </Section>
       <Section title="Organization Managers">
         <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm"><thead className="bg-slate-50 text-slate-500"><tr>{["Name", "Email", "Phone", "Role", "Status", "Action"].map((h) => <th key={h} className="p-3">{h}</th>)}</tr></thead><tbody>{rows.map((row) => <tr key={row.id} className="border-t border-slate-100"><td className="p-3 font-semibold">{row.name}</td><td>{row.email}</td><td>{row.phone || "-"}</td><td><StatusBadge value={row.role} /></td><td><StatusBadge value={row.status} /></td><td><div className="flex flex-nowrap gap-2"><button className="whitespace-nowrap rounded-md bg-indigo-600 px-2.5 py-1 text-xs font-semibold text-white" onClick={() => editManager(row)}>Edit</button><button className={`whitespace-nowrap rounded-md px-2.5 py-1 text-xs font-semibold text-white ${row.status === "active" ? "bg-amber-500" : "bg-emerald-600"}`} onClick={() => setStatus(row.id, row.status === "active" ? "inactive" : "active")}>{row.status === "active" ? "Block" : "Unblock"}</button><button className="whitespace-nowrap rounded-md bg-rose-600 px-2.5 py-1 text-xs font-semibold text-white" onClick={() => removeManager(row)}>Delete</button></div></td></tr>)}</tbody></table>
+          <table className="w-full text-left text-sm"><thead className="bg-slate-50 text-slate-500"><tr>{["Name", "Role", "Status", "Actions"].map((h) => <th key={h} className="p-3">{h}</th>)}</tr></thead><tbody>{rows.map((row) => <tr key={row.id} className="border-t border-slate-100"><td className="p-3"><button type="button" className="font-semibold text-indigo-700 hover:underline" onClick={() => setSelectedManager(row)}>{row.name}</button></td><td><StatusBadge value={row.role} /></td><td><button type="button" aria-label={`Set ${row.name} ${row.status === "active" ? "inactive" : "active"}`} onClick={() => setStatus(row.id, row.status === "active" ? "inactive" : "active")}><StatusBadge value={row.status} /></button></td><td><div className="flex flex-nowrap gap-2"><button type="button" title="Edit manager" aria-label={`Edit ${row.name}`} className="rounded-md border border-indigo-200 p-2 text-indigo-700 hover:bg-indigo-50" onClick={() => editManager(row)}><Pencil size={16} /></button><button type="button" title="Delete manager" aria-label={`Delete ${row.name}`} className="rounded-md border border-rose-200 p-2 text-rose-700 hover:bg-rose-50" onClick={() => removeManager(row)}><Trash2 size={16} /></button></div></td></tr>)}</tbody></table>
         </div>
       </Section>
-    </div>
-  );
-}
-
-function AdminPinnedMessages() {
-  const [rows, setRows] = useState([]);
-  const [managers, setManagers] = useState([]);
-  const [form, setForm] = useState({ assignedTo: "", roleTarget: "", title: "", message: "", priority: "medium" });
-  const load = async () => {
-    const [pins, mgrs] = await Promise.allSettled([api.get("/admin-ceo/pinned-messages"), api.get("/admin-ceo/managers")]);
-    setRows(pins.status === "fulfilled" ? pins.value.data : []);
-    setManagers(mgrs.status === "fulfilled" ? mgrs.value.data : []);
-  };
-  useEffect(() => { load(); }, []);
-  const submit = async (e) => {
-    e.preventDefault();
-    await api.post("/admin-ceo/pinned-messages", { ...form, assignedTo: form.assignedTo || null, roleTarget: form.roleTarget || null });
-    setForm({ assignedTo: "", roleTarget: "", title: "", message: "", priority: "medium" });
-    load();
-  };
-  return (
-    <div className="grid gap-6 xl:grid-cols-[420px_1fr]">
-      <Section title="Create Pinned Task">
-        <form onSubmit={submit} className="grid gap-3">
-          <TextField label="Title" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} required />
-          <label className="text-sm font-semibold text-slate-600">Assign To<select className="mt-1 w-full rounded-md border border-slate-200 p-2.5" value={form.assignedTo} onChange={(e) => setForm({ ...form, assignedTo: e.target.value })}><option value="">All / Role target</option>{managers.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}</select></label>
-          <label className="text-sm font-semibold text-slate-600">Role Target<select className="mt-1 w-full rounded-md border border-slate-200 p-2.5" value={form.roleTarget} onChange={(e) => setForm({ ...form, roleTarget: e.target.value })}><option value="">All roles</option><option value="DEALER_MANAGER">Dealer Manager</option><option value="PRODUCT_DELIVERY_MANAGER">Product Delivery Manager</option><option value="FINANCE_MANAGER">Finance Manager</option></select></label>
-          <label className="text-sm font-semibold text-slate-600">Priority<select className="mt-1 w-full rounded-md border border-slate-200 p-2.5" value={form.priority} onChange={(e) => setForm({ ...form, priority: e.target.value })}><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option></select></label>
-          <textarea className="min-h-28 rounded-md border border-slate-200 p-3 text-sm" value={form.message} onChange={(e) => setForm({ ...form, message: e.target.value })} required />
-          <Button type="submit">Pin Message</Button>
-        </form>
-      </Section>
-      <SimpleTable title="Pinned Messages" rows={rows.map((r) => ({ ...r, assignee: r.assignee?.name || r.roleTarget || "All", priority: r.priority }))} cols={["title", "message", "priority", "assignee", "createdAt"]} />
+      {selectedManager && <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/50 p-4" onMouseDown={() => setSelectedManager(null)}><div role="dialog" aria-modal="true" aria-labelledby="manager-details-title" className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl" onMouseDown={(e) => e.stopPropagation()}><div className="flex items-start justify-between gap-4"><div><h2 id="manager-details-title" className="text-xl font-bold text-slate-950">{selectedManager.name}</h2><p className="mt-1 text-sm text-slate-500">Complete Manager Details</p></div><button type="button" aria-label="Close manager details" className="rounded-md p-2 text-slate-500 hover:bg-slate-100" onClick={() => setSelectedManager(null)}><X size={18} /></button></div><dl className="mt-6 grid gap-4 sm:grid-cols-2">{[["Email", selectedManager.email], ["Phone", selectedManager.phone || "-"], ["Role", String(selectedManager.role || "-").replaceAll("_", " ")], ["Status", selectedManager.status], ["Created", formatDate(selectedManager.createdAt)]].map(([label, value]) => <div key={label} className="rounded-lg bg-slate-50 p-3"><dt className="text-xs font-bold uppercase tracking-wide text-slate-500">{label}</dt><dd className="mt-1 break-words text-sm font-semibold capitalize text-slate-900">{value}</dd></div>)}</dl></div></div>}
     </div>
   );
 }
