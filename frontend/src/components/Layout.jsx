@@ -23,6 +23,7 @@ import { useMemo, useState } from "react";
 import { useEffect } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { api } from "../api/client";
+import { cachedGet } from "../utils/sessionApiCache";
 import { useAuth } from "../state/AuthContext";
 
 const iconMap = {
@@ -51,8 +52,8 @@ export default function Layout({ title, subtitle, tabs, activeTab, onTab, childr
 
   useEffect(() => {
     if (!user || !["ADMIN", "ADMIN_CEO", "DEALER", "DEALER_CEO", "DEALER_STOCK_INVENTORY_MANAGER", "DEALER_STOCK_DELIVERY_MANAGER", "DEALER_SALES_FINANCE_MANAGER", "SUPER_ADMIN", "SUPER_ADMIN_CEO"].includes(user.role)) return;
-    api.get("/internal-updates").then((res) => setUnreadUpdates(res.data.unreadCount || 0)).catch(() => setUnreadUpdates(0));
-  }, [activeTab, user]);
+    cachedGet(api, "/internal-updates", {}, { ttl: 60 * 1000 }).then((res) => setUnreadUpdates(res.data.unreadCount || 0)).catch(() => setUnreadUpdates(0));
+  }, [user?.id, user?.role]);
 
   const selectTab = (id) => {
     onTab(id);
