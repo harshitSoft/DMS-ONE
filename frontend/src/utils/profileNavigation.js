@@ -2,8 +2,8 @@ const dealerStockExchangeEnabled = import.meta.env.VITE_ENABLE_DEALER_STOCK_EXCH
 const dealerStockExchangeTab = dealerStockExchangeEnabled ? [{ id: "dealerStockExchange", label: "Dealer Stock Exchange", icon: "inventory" }] : [];
 const adminInterDealerTab = dealerStockExchangeEnabled ? [{ id: "interDealerRequests", label: "Inter-Dealer Requests", icon: "inventory" }] : [];
 const adminCeoTransferTabs = dealerStockExchangeEnabled ? [
-  { id: "transferApprovals", label: "Transfer Approvals", icon: "inventory" },
-  { id: "transferHistory", label: "Transfer History", icon: "reports" }
+  { id: "transfer-approvals", label: "Transfer Approvals", icon: "inventory" },
+  { id: "transfer-history", label: "Transfer History", icon: "reports" }
 ] : [];
 
 export const roleRoutes = {
@@ -34,32 +34,29 @@ export const roleTabs = {
   ],
   ADMIN: [
     { id: "dashboard", label: "Dashboard", icon: "dashboard" },
-    { id: "dealers", label: "Dealers", icon: "dealers" },
-    { id: "dealerPerformance", label: "Dealer Performance", icon: "performance" },
-    { id: "products", label: "Products", icon: "products" },
-    { id: "inventory", label: "Inventory", icon: "inventory" },
-    { id: "orders", label: "Orders", icon: "orders" },
-    { id: "delivery", label: "Delivery", icon: "delivery" },
-    { id: "finance", label: "Finance", icon: "finance" },
-    { id: "creditManagement", label: "Credit Management", icon: "credits" },
-    { id: "dealerSales", label: "Dealer Sales", icon: "reports" },
-    { id: "messages", label: "Messages", icon: "messages" },
-    { id: "internalUpdates", label: "Internal Updates", icon: "internalUpdates" },
-    { id: "policies", label: "Policies", icon: "policies" },
-    { id: "reports", label: "Reports", icon: "reports" }
+    { id: "managers", label: "Managers", icon: "dealers" },
+    { id: "dealer-analytics", label: "Dealer Analytics", icon: "dealers" },
+    { id: "product-performance", label: "Product Performance", icon: "products" },
+    { id: "order-management", label: "Order Management", icon: "orders" },
+    { id: "delivery-monitoring", label: "Delivery Monitoring", icon: "delivery" },
+    { id: "financial-overview", label: "Financial Overview", icon: "finance" },
+    { id: "credit-monitoring", label: "Credit Monitoring", icon: "credits" },
+    ...adminCeoTransferTabs,
+    { id: "internal-team-chat", label: "Internal Team Chat", icon: "messages" },
+    { id: "internal-updates", label: "Internal Updates", icon: "internalUpdates" }
   ],
   ADMIN_CEO: [
     { id: "dashboard", label: "Dashboard", icon: "dashboard" },
-    { id: "adminManagers", label: "Managers", icon: "dealers" },
-    { id: "dealersOverview", label: "Dealers Overview", icon: "dealers" },
-    { id: "productOverview", label: "Product Overview", icon: "products" },
-    { id: "orderOverview", label: "Order Overview", icon: "orders" },
-    { id: "deliveryOverview", label: "Delivery Overview", icon: "delivery" },
-    { id: "financeOverview", label: "Finance Overview", icon: "finance" },
-    { id: "creditOverview", label: "Credit Overview", icon: "credits" },
+    { id: "managers", label: "Managers", icon: "dealers" },
+    { id: "dealer-analytics", label: "Dealer Analytics", icon: "dealers" },
+    { id: "product-performance", label: "Product Performance", icon: "products" },
+    { id: "order-management", label: "Order Management", icon: "orders" },
+    { id: "delivery-monitoring", label: "Delivery Monitoring", icon: "delivery" },
+    { id: "financial-overview", label: "Financial Overview", icon: "finance" },
+    { id: "credit-monitoring", label: "Credit Monitoring", icon: "credits" },
     ...adminCeoTransferTabs,
-    { id: "adminChat", label: "Internal Team Chat", icon: "messages" },
-    { id: "internalUpdates", label: "Internal Updates", icon: "internalUpdates" }
+    { id: "internal-team-chat", label: "Internal Team Chat", icon: "messages" },
+    { id: "internal-updates", label: "Internal Updates", icon: "internalUpdates" }
   ],
   DEALER_MANAGER: [
     { id: "dashboard", label: "Dashboard", icon: "dashboard" },

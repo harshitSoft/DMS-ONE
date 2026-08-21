@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { AlertTriangle, CheckCircle2, Clock, Gift, IndianRupee, PackageCheck, Pencil, Star, Trash2, Truck, Users, X } from "lucide-react";
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, Legend, Pie, PieChart, PolarAngleAxis, PolarGrid, PolarRadiusAxis, Radar, RadarChart, RadialBar, RadialBarChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import Layout from "../components/Layout";
@@ -36,7 +37,16 @@ const tabs = [
 export default function Admin() {
   const { user } = useAuth();
   const currentTabs = roleTabs[user?.role] || tabs;
-  const [activeTab, setActiveTab] = useState(() => consumeProfileTargetTab("dashboard", currentTabs));
+  const navigate = useNavigate();
+  const { section } = useParams();
+  const routeTab = section || consumeProfileTargetTab("dashboard", currentTabs);
+  const activeTab = currentTabs.some((tab) => tab.id === routeTab) ? routeTab : "dashboard";
+  
+  useEffect(() => {
+    if (!section && activeTab !== "dashboard") navigate(`/admin/${activeTab}`, { replace: true });
+  }, [section, activeTab, navigate]);
+
+  const setActiveTab = (id) => navigate(`/admin/${id}`);
   const [data, setData] = useState({});
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
@@ -237,16 +247,16 @@ export default function Admin() {
       />
       {loadError && <div className="mb-5 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm font-semibold text-amber-800 shadow-sm"><span>{loadError}</span><Button variant="ghost" onClick={load}>Retry</Button></div>}
       {activeTab === "dashboard" && (user?.role === "ADMIN_CEO" ? <AdminCeoReadOnlyOverview endpoint="/admin-ceo/dashboard" type="dashboard" /> : user?.role === "PRODUCT_DELIVERY_MANAGER" ? <ProductDeliveryManagerDashboard analytics={data.dashboard_analytics} products={data.products || []} orders={data.orders || []} dealerStock={data.stock_dealers || []} fallbackCards={dashboardCards} /> : user?.role === "FINANCE_MANAGER" ? <FinanceManagerDashboard analytics={data.dashboard_analytics} payments={data.finance_payments?.payments || []} stats={data.finance_payments?.stats || {}} fallbackCards={dashboardCards} /> : <AdminAnalytics analytics={data.dashboard_analytics} fallbackCards={dashboardCards} />)}
-      {activeTab === "adminManagers" && <AdminManagers />}
-      {activeTab === "adminChat" && <AdminTeamChat />}
-      {activeTab === "dealersOverview" && <AdminCeoReadOnlyOverview endpoint="/admin-ceo/dealers-overview" type="dealers" />}
-      {activeTab === "productOverview" && <AdminCeoReadOnlyOverview endpoint="/admin-ceo/product-overview" type="products" />}
-      {activeTab === "orderOverview" && <AdminCeoReadOnlyOverview endpoint="/admin-ceo/order-overview" type="orders" />}
-      {activeTab === "deliveryOverview" && <AdminCeoReadOnlyOverview endpoint="/admin-ceo/delivery-overview" type="delivery" />}
-      {activeTab === "financeOverview" && <AdminCeoReadOnlyOverview endpoint="/admin-ceo/finance-overview" type="finance" />}
-      {activeTab === "creditOverview" && <AdminCeoReadOnlyOverview endpoint="/admin-ceo/credit-overview" type="credit" />}
-      {activeTab === "transferApprovals" && <AdminCeoTransferApprovals />}
-      {activeTab === "transferHistory" && <AdminCeoTransferHistory />}
+      {(activeTab === "adminManagers" || activeTab === "managers") && <AdminManagers />}
+      {(activeTab === "adminChat" || activeTab === "internal-team-chat") && <AdminTeamChat />}
+      {(activeTab === "dealersOverview" || activeTab === "dealer-analytics") && <AdminCeoReadOnlyOverview endpoint="/admin-ceo/dealers-overview" type="dealers" />}
+      {(activeTab === "productOverview" || activeTab === "product-performance") && <AdminCeoReadOnlyOverview endpoint="/admin-ceo/product-overview" type="products" />}
+      {(activeTab === "orderOverview" || activeTab === "order-management") && <AdminCeoReadOnlyOverview endpoint="/admin-ceo/order-overview" type="orders" />}
+      {(activeTab === "deliveryOverview" || activeTab === "delivery-monitoring") && <AdminCeoReadOnlyOverview endpoint="/admin-ceo/delivery-overview" type="delivery" />}
+      {(activeTab === "financeOverview" || activeTab === "financial-overview") && <AdminCeoReadOnlyOverview endpoint="/admin-ceo/finance-overview" type="finance" />}
+      {(activeTab === "creditOverview" || activeTab === "credit-monitoring") && <AdminCeoReadOnlyOverview endpoint="/admin-ceo/credit-overview" type="credit" />}
+      {(activeTab === "transferApprovals" || activeTab === "transfer-approvals") && <AdminCeoTransferApprovals />}
+      {(activeTab === "transferHistory" || activeTab === "transfer-history") && <AdminCeoTransferHistory />}
       {activeTab === "interDealerRequests" && <InterDealerRequests />}
       {activeTab === "dealerPerformance" && <DealerPerformancePanel data={data["dealer-performance"]} filters={performanceFilter} setFilters={setPerformanceFilter} reload={loadDealerPerformance} products={data.products || []} />}
       {activeTab === "dealers" && (
@@ -301,7 +311,7 @@ export default function Admin() {
       {activeTab === "dealerSales" && <AdminDealerSales data={data["dealer-sales"]} dealers={data.dealers || []} products={data.products || []} />}
       {activeTab === "policies" && <Composer title="Policy & information" form={policyForm} setForm={setPolicyForm} submit={() => create("/admin/policies", policyForm, () => setPolicyForm({ ...policyForm, title: "", description: "" }))} rows={data.policies} cols={["title", "description", "visibleToDealers"]} />}
       {activeTab === "messages" && <AdminChat data={data.messages_conversations} form={messageForm} setForm={setMessageForm} sendMessage={sendMessage} />}
-      {activeTab === "internalUpdates" && <InternalUpdates data={data.internalUpdates} filter={internalFilter} setFilter={setInternalFilter} markRead={markUpdateRead} markAll={markAllUpdatesRead} />}
+      {(activeTab === "internalUpdates" || activeTab === "internal-updates") && <InternalUpdates data={data.internalUpdates} filter={internalFilter} setFilter={setInternalFilter} markRead={markUpdateRead} markAll={markAllUpdatesRead} />}
       {activeTab === "reports" && <SimpleTable title="Dealer reports and updates" rows={data.reports} cols={["title", "type", "description", "dealerId", "createdAt"]} />}
     </Layout>
   );
