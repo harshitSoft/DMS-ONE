@@ -1,5 +1,6 @@
 const { Op, fn, col } = require("sequelize");
 const asyncHandler = require("../utils/asyncHandler");
+const { hardDeleteUser } = require("../utils/userCleanup");
 const {
   sequelize,
   Company,
@@ -204,8 +205,9 @@ exports.updateManagerStatus = asyncHandler(async (req, res) => {
 exports.deleteManager = asyncHandler(async (req, res) => {
   const user = await User.findOne({ where: { id: req.params.id, role: managerRoles } });
   if (!user) return res.status(404).json({ message: "Manager not found" });
-  await user.update({ status: "inactive" });
-  res.json({ message: "Manager deleted safely" });
+  await hardDeleteUser(user.id);
+  await user.destroy();
+  res.json({ message: "Manager deleted" });
 });
 
 exports.companies = asyncHandler(async (req, res) => {

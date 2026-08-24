@@ -9,7 +9,10 @@ import Dealer from "./pages/Dealer.jsx";
 import Profile from "./pages/Profile.jsx";
 import { AuthProvider, useAuth } from "./state/AuthContext.jsx";
 import { dashboardRoute } from "./utils/roleRouting.js";
+import { initTextFormatter } from "./utils/textFormatter.js";
 import "./styles.css";
+
+initTextFormatter();
 
 function ProtectedRoute({ role, children }) {
   const { user, loading } = useAuth();

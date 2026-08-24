@@ -1,5 +1,7 @@
+import { useState, useRef, useEffect } from "react";
 import clsx from "clsx";
 import { format } from "date-fns";
+import { formatTitleCase } from "../utils/textFormatter";
 import {
   AlertTriangle,
   ArrowRight,
@@ -149,7 +151,7 @@ export function DashboardCard({ label, value, icon: Icon = PackageOpen, tone, he
       <div className="absolute -right-10 -top-12 -z-10 h-32 w-32 rounded-full bg-slate-50 transition duration-300 group-hover:scale-125" />
       <div className="flex items-start justify-between gap-4">
         <div>
-          <p className="text-sm font-semibold text-slate-500">{label}</p>
+          <p className="text-sm font-semibold text-slate-500">{typeof label === 'string' ? formatTitleCase(label) : label}</p>
           <p className="mt-2 text-3xl font-bold tracking-tight text-slate-950">{value ?? 0}</p>
         </div>
         <div className={clsx("grid h-12 w-12 shrink-0 place-items-center rounded-xl ring-1 transition duration-200 group-hover:-translate-y-0.5 group-hover:scale-105", style.icon)}>
@@ -175,7 +177,7 @@ export function SectionCard({ title, actions, children, className }) {
       {(title || actions) && (
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 bg-gradient-to-r from-white to-slate-50/60 px-5 py-4">
           <div>
-            <h2 className="text-base font-bold tracking-tight text-slate-900">{title}</h2>
+            <h2 className="text-base font-bold tracking-tight text-slate-900">{typeof title === 'string' ? formatTitleCase(title) : title}</h2>
           </div>
           {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
         </div>
@@ -221,7 +223,7 @@ export function PaymentBadge({ value }) {
   return <StatusBadge value={value} />;
 }
 
-export function TextField({ label, className, icon: Icon, ...props }) {
+export function TextField({ label, className, icon: Icon, suffix, ...props }) {
   return (
     <label className={clsx("block", className)}>
       {label && <span className="text-sm font-semibold text-slate-600">{label}</span>}
@@ -230,10 +232,12 @@ export function TextField({ label, className, icon: Icon, ...props }) {
         <input
           className={clsx(
             "w-full rounded-md border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100",
-            Icon && "pl-10"
+            Icon && "pl-10",
+            suffix && "pr-10"
           )}
           {...props}
         />
+        {suffix && <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center justify-center">{suffix}</div>}
       </div>
     </label>
   );
@@ -250,6 +254,79 @@ export function Select({ label, children, className, ...props }) {
       <select className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none transition focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100" {...props}>
         {children}
       </select>
+    </label>
+  );
+}
+
+export function SearchableSelect({ label, options, value, onChange, placeholder, disabled, required, className }) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const wrapperRef = useRef(null);
+
+  useEffect(() => {
+    function handleClickOutside(event) {
+      if (wrapperRef.current && !wrapperRef.current.contains(event.target)) {
+        setOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const filtered = options.filter(opt => opt.toLowerCase().includes(search.toLowerCase()));
+
+  return (
+    <label className={clsx("block", className)} ref={wrapperRef}>
+      {label && <span className="text-sm font-semibold text-slate-600">{label}</span>}
+      <div className="relative mt-1">
+        <div
+          className={clsx(
+            "w-full rounded-md border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none transition flex justify-between items-center",
+            disabled ? "bg-slate-50 cursor-not-allowed opacity-50" : "cursor-pointer focus-within:border-indigo-500 focus-within:ring-4 focus-within:ring-indigo-100"
+          )}
+          onClick={() => !disabled && setOpen(!open)}
+        >
+          <span className={value ? "" : "text-slate-400"}>{value || placeholder || "Select..."}</span>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-slate-400"><path d="m6 9 6 6 6-6"/></svg>
+        </div>
+        
+        {open && (
+          <div className="absolute z-50 mt-1 w-full rounded-md border border-slate-200 bg-white shadow-lg">
+            <div className="p-2 border-b border-slate-100">
+              <input
+                type="text"
+                autoFocus
+                className="w-full rounded-md bg-slate-50 px-3 py-1.5 text-sm outline-none placeholder:text-slate-400"
+                placeholder="Search..."
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                onClick={e => e.stopPropagation()}
+              />
+            </div>
+            <ul className="max-h-48 overflow-y-auto p-1">
+              {filtered.length === 0 && <li className="p-2 text-sm text-slate-500 text-center">No results found</li>}
+              {filtered.map(opt => (
+                <li
+                  key={opt}
+                  className={clsx(
+                    "cursor-pointer rounded-md px-3 py-2 text-sm hover:bg-indigo-50 hover:text-indigo-700",
+                    value === opt && "bg-indigo-50 font-semibold text-indigo-700"
+                  )}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onChange(opt);
+                    setOpen(false);
+                    setSearch("");
+                  }}
+                >
+                  {opt}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+        {required && <input type="text" value={value} onChange={() => {}} className="absolute opacity-0 w-0 h-0 pointer-events-none" required />}
+      </div>
     </label>
   );
 }

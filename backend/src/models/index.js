@@ -135,8 +135,11 @@ const SuperAdminChat = sequelize.define("SuperAdminChat", {
 const AdminInternalMessage = sequelize.define("AdminInternalMessage", {
   companyId: { type: DataTypes.INTEGER, allowNull: false },
   senderId: { type: DataTypes.INTEGER, allowNull: false },
-  receiverId: { type: DataTypes.INTEGER, allowNull: false },
+  receiverId: { type: DataTypes.INTEGER, allowNull: true },
   message: { type: DataTypes.TEXT, allowNull: false },
+  attachmentUrl: { type: DataTypes.STRING, allowNull: true },
+  attachmentName: { type: DataTypes.STRING, allowNull: true },
+  isEdited: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
   isRead: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false }
 }, { tableName: "admin_internal_messages" });
 

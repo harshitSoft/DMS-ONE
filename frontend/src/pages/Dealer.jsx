@@ -1,5 +1,5 @@
 import { Component, useEffect, useMemo, useState } from "react";
-import { Gift, Star } from "lucide-react";
+import { Gift, Star, Eye, EyeOff, X, Pencil, Trash2 } from "lucide-react";
 import { Bar, BarChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import Layout from "../components/Layout";
 import { api, fileUrl } from "../api/client";
@@ -124,11 +124,10 @@ function DealerDashboard() {
         creditStore: ["credit_store", "credit_redemptions", "credit_transactions"]
       };
       const needed = keysByTab[activeTab] || [];
-      const includeUpdates = activeTab === "internalUpdates";
       const needsManagerStatus = ["stock", "orders", "sales", "finance", "creditStore"].includes(activeTab) && ["DEALER", "DEALER_CEO"].includes(user?.role);
       const result = await Promise.allSettled([
         ...needed.map((key) => cachedGet(api, `/dealer/${endpointMap[key]}`, {}, { force })),
-        ...(includeUpdates ? [cachedGet(api, "/internal-updates", {}, { force })] : []),
+        cachedGet(api, "/internal-updates", {}, { force }),
         ...(needsManagerStatus ? [cachedGet(api, "/dealer-ceo/manager-exists", {}, { force }).catch(() => ({ data: { exists: false } }))] : [])
       ]);
       const payload = {};
@@ -142,11 +141,10 @@ function DealerDashboard() {
           failed.push(key.replaceAll("_", " "));
         }
       });
-      if (includeUpdates) {
-        const updatesResult = result[needed.length];
-        payload.internalUpdates = updatesResult.status === "fulfilled" && updatesResult.value.data ? updatesResult.value.data : { rows: [], unreadCount: 0 };
-      }
-      if (needsManagerStatus) setDealerManagersExist(Boolean(result[needed.length + (includeUpdates ? 1 : 0)]?.value?.data?.exists));
+      const updatesResult = result[needed.length];
+      payload.internalUpdates = updatesResult.status === "fulfilled" && updatesResult.value.data ? updatesResult.value.data : { rows: [], unreadCount: 0 };
+      
+      if (needsManagerStatus) setDealerManagersExist(Boolean(result[needed.length + 1]?.value?.data?.exists));
       setData((current) => ({ ...current, ...payload }));
       if (failed.length) setLoadError(`Some dealer sections could not load: ${failed.join(", ")}.`);
     } catch (error) {
@@ -302,7 +300,7 @@ function DealerDashboard() {
   const ceoReadOnly = dealerManagersExist && ["DEALER", "DEALER_CEO"].includes(user?.role);
 
   return (
-    <Layout title="Dealer Dashboard" subtitle="Orders, inventory, finance and updates" tabs={visibleTabs} activeTab={activeTab} onTab={setActiveTab}>
+    <Layout title="Dealer Dashboard" subtitle="Orders, inventory, finance and updates" tabs={visibleTabs} activeTab={activeTab} onTab={setActiveTab} unreadUpdates={data.internalUpdates?.unreadCount || 0}>
       <PageHeader
         eyebrow={String(user?.role || "Dealer").replaceAll("_", " ")}
         title={visibleTabs.find((tab) => tab.id === activeTab)?.label || "Dashboard"}
@@ -491,14 +489,18 @@ function AccessDenied() {
 }
 
 function DealerManagers() {
-  const initialForm = { name: "", email: "", phone: "", password: "", role: "DEALER_STOCK_DELIVERY_MANAGER", status: "active" };
+  const initialForm = { name: "", email: "", phone: "", password: "", confirmPassword: "", role: "DEALER_STOCK_DELIVERY_MANAGER", status: "active" };
   const [rows, setRows] = useState([]);
   const [form, setForm] = useState(initialForm);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [openCreate, setOpenCreate] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [confirmAction, setConfirmAction] = useState(null);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [editingManager, setEditingManager] = useState(null);
+
   const load = async (force = false) => {
     const { data } = await cachedGet(api, "/dealer-ceo/managers", {}, { force });
     setRows(data);
@@ -510,6 +512,7 @@ function DealerManagers() {
     if (!form.email.trim()) return "Email is required";
     if (!form.password) return "Password is required";
     if (form.password.length < 6) return "Password must be at least 6 characters";
+    if (form.password !== form.confirmPassword) return "Passwords do not match";
     if (!form.role) return "Role is required";
     return "";
   };
@@ -538,11 +541,20 @@ function DealerManagers() {
       setSubmitting(false);
     }
   };
-  const edit = async (manager) => {
-    const name = window.prompt("Manager name", manager.name);
-    if (!name) return;
-    await api.put(`/dealer-ceo/managers/${manager.id}`, { name });
-    load(true);
+  
+  const edit = (manager) => {
+    setEditingManager({ ...manager });
+  };
+  
+  const saveEdit = async (e) => {
+    e.preventDefault();
+    try {
+      await api.put(`/dealer-ceo/managers/${editingManager.id}`, { name: editingManager.name, phone: editingManager.phone, role: editingManager.role });
+      setEditingManager(null);
+      load(true);
+    } catch (err) {
+      window.alert(err.response?.data?.message || "Failed to update manager");
+    }
   };
   const toggle = async (manager) => {
     const status = manager.status === "active" ? "inactive" : "active";
@@ -560,7 +572,7 @@ function DealerManagers() {
   const remove = async (manager) => {
     setConfirmAction({
       title: "Delete manager",
-      description: `Delete ${manager.name}? Login will be disabled and history kept.`,
+      description: `Permanently delete ${manager.name} from the database? This action cannot be undone.`,
       confirmText: "Delete",
       danger: true,
       run: async () => {
@@ -595,28 +607,54 @@ function DealerManagers() {
         role: displayRole(row.role),
         createdAt: row.createdAt ? new Date(row.createdAt).toLocaleString() : "-",
         actions: row
-      }))} cols={["name", "email", "phone", "role", "status", "createdAt", "actions"]} renderCell={(row, col) => col === "actions" ? <div className="flex flex-nowrap gap-2"><button className="whitespace-nowrap rounded-md bg-indigo-600 px-2.5 py-1 text-xs font-semibold text-white" onClick={() => edit(row.actions)}>Edit</button><button className={`whitespace-nowrap rounded-md px-2.5 py-1 text-xs font-semibold text-white ${row.actions.status === "active" ? "bg-amber-500" : "bg-emerald-600"}`} onClick={() => toggle(row.actions)}>{row.actions.status === "active" ? "Block" : "Unblock"}</button><button className="whitespace-nowrap rounded-md bg-rose-600 px-2.5 py-1 text-xs font-semibold text-white" onClick={() => remove(row.actions)}>Delete</button></div> : row[col]} />
-      {openCreate && <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/50 p-4 backdrop-blur-sm">
-        <div className="w-full max-w-2xl rounded-md bg-white p-5 shadow-2xl">
+      }))} cols={["name", "email", "phone", "role", "status", "createdAt", "actions"]} renderCell={(row, col) => {
+        if (col === "status") {
+          return (
+            <button
+              onClick={() => toggle(row.actions)}
+              aria-label={`Toggle status for ${row.name}`}
+              className="focus:outline-none transition-opacity hover:opacity-80"
+            >
+              <UIStatusBadge value={row.status} />
+            </button>
+          );
+        }
+        if (col === "actions") {
+          return (
+            <div className="flex flex-nowrap gap-2">
+              <button className="rounded-md border border-indigo-200 p-2 text-indigo-700 hover:bg-indigo-50" title="Edit manager" aria-label={`Edit ${row.actions.name}`} onClick={() => edit(row.actions)}>
+                <Pencil size={16} />
+              </button>
+              <button className="rounded-md border border-rose-200 p-2 text-rose-700 hover:bg-rose-50" title="Delete manager" aria-label={`Delete ${row.actions.name}`} onClick={() => remove(row.actions)}>
+                <Trash2 size={16} />
+              </button>
+            </div>
+          );
+        }
+        return row[col];
+      }} />
+      {openCreate && <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/50 p-4 backdrop-blur-sm" onMouseDown={() => setOpenCreate(false)}>
+        <div className="w-full max-w-2xl rounded-md bg-white p-5 shadow-2xl" onMouseDown={(e) => e.stopPropagation()}>
           <div className="mb-4 flex items-start justify-between gap-4">
             <div>
               <h2 className="text-lg font-semibold text-slate-950">Create Manager</h2>
               <p className="mt-1 text-sm text-slate-500">New managers are active by default.</p>
             </div>
-            <button className="rounded-md px-2 py-1 text-sm font-semibold text-slate-500 hover:bg-slate-100" onClick={() => setOpenCreate(false)}>Close</button>
+            <button className="rounded-md px-2 py-1 text-sm font-semibold text-slate-500 hover:bg-slate-100" onClick={() => setOpenCreate(false)}><X size={18} /></button>
           </div>
           {error && <div className="mb-3 rounded-md border border-rose-200 bg-rose-50 p-3 text-sm font-semibold text-rose-700">{error}</div>}
           <FormGrid onSubmit={save}>
             <TextField label="Name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required />
             <TextField label="Email" type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} required />
-            <TextField label="Password" type="password" minLength="6" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} required />
-            <TextField label="Phone" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
+            <TextField label="Phone" type="tel" pattern="\d{10}" title="Phone must be exactly 10 digits" maxLength={10} minLength={10} value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value.replace(/\D/g, '') })} required />
+            <TextField label="Password" type={showPassword ? "text" : "password"} minLength="6" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} required suffix={<button type="button" onClick={() => setShowPassword(!showPassword)} className="text-slate-400 hover:text-slate-600 focus:outline-none">{showPassword ? <EyeOff size={18} /> : <Eye size={18} />}</button>} />
+            <TextField label="Confirm Password" type={showConfirmPassword ? "text" : "password"} minLength="6" value={form.confirmPassword} onChange={(e) => setForm({ ...form, confirmPassword: e.target.value })} required suffix={<button type="button" onClick={() => setShowConfirmPassword(!showConfirmPassword)} className="text-slate-400 hover:text-slate-600 focus:outline-none">{showConfirmPassword ? <EyeOff size={18} /> : <Eye size={18} />}</button>} />
             <label className="text-sm font-semibold text-slate-600">Role<select className="mt-1 w-full rounded-md border border-slate-200 p-2.5" value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })} required><option value="DEALER_STOCK_DELIVERY_MANAGER">Stock & Delivery Manager</option><option value="DEALER_SALES_FINANCE_MANAGER">Sales & Finance Manager</option></select></label>
-            <label className="text-sm font-semibold text-slate-600">Status<input className="mt-1 w-full rounded-md border border-slate-200 bg-slate-50 p-2.5 text-sm text-slate-500" value="Active" disabled /></label>
-            <div className="md:col-span-2 flex justify-end gap-2"><Button variant="ghost" onClick={() => setOpenCreate(false)}>Cancel</Button><Button type="submit" disabled={submitting}>{submitting ? "Creating..." : "Create Manager"}</Button></div>
+            <div className="md:col-span-2 flex justify-end gap-2"><Button variant="ghost" type="button" onClick={() => setOpenCreate(false)}>Cancel</Button><Button type="submit" disabled={submitting}>{submitting ? "Creating..." : "Create Manager"}</Button></div>
           </FormGrid>
         </div>
       </div>}
+      {editingManager && <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/50 p-4" onMouseDown={() => setEditingManager(null)}><div role="dialog" aria-modal="true" aria-labelledby="manager-edit-title" className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl" onMouseDown={(e) => e.stopPropagation()}><div className="flex items-start justify-between gap-4"><div><h2 id="manager-edit-title" className="text-xl font-bold text-slate-950">Edit {editingManager.name}</h2><p className="mt-1 text-sm text-slate-500">Update Manager Details</p></div><button type="button" aria-label="Close edit manager" className="rounded-md p-2 text-slate-500 hover:bg-slate-100" onClick={() => setEditingManager(null)}><X size={18} /></button></div><dl className="mt-6 grid gap-4 sm:grid-cols-2 mb-6">{[["Email", editingManager.email], ["Status", editingManager.status], ["Created", formatDate(editingManager.createdAt)]].map(([label, value]) => <div key={label} className="rounded-lg bg-slate-50 p-3"><dt className="text-xs font-bold uppercase tracking-wide text-slate-500">{label}</dt><dd className="mt-1 break-words text-sm font-semibold capitalize text-slate-900">{value}</dd></div>)}</dl><form onSubmit={saveEdit} className="space-y-4"><TextField label="Name" value={editingManager.name} onChange={(e) => setEditingManager({ ...editingManager, name: e.target.value })} required /><TextField label="Phone" type="tel" pattern="\d{10}" title="Phone must be exactly 10 digits" maxLength={10} minLength={10} value={editingManager.phone || ""} onChange={(e) => setEditingManager({ ...editingManager, phone: e.target.value.replace(/\D/g, '') })} required /><label className="text-sm font-semibold text-slate-600">Role<select className="mt-1 w-full rounded-md border border-slate-200 p-2.5" value={editingManager.role} onChange={(e) => setEditingManager({ ...editingManager, role: e.target.value })} required><option value="DEALER_STOCK_DELIVERY_MANAGER">Stock & Delivery Manager</option><option value="DEALER_SALES_FINANCE_MANAGER">Sales & Finance Manager</option></select></label><div className="mt-6 flex justify-end gap-3"><Button type="button" variant="secondary" className="bg-slate-100 text-slate-700 hover:bg-slate-200" onClick={() => setEditingManager(null)}>Cancel</Button><Button type="submit">Save Changes</Button></div></form></div></div>}
       <ConfirmModal open={Boolean(confirmAction)} title={confirmAction?.title} description={confirmAction?.description} confirmText={confirmAction?.confirmText} danger={confirmAction?.danger} onClose={() => setConfirmAction(null)} onConfirm={confirm} />
     </div>
   );

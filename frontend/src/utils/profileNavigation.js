@@ -51,12 +51,12 @@ export const roleTabs = {
   ADMIN_CEO: [
     { id: "dashboard", label: "Dashboard", icon: "dashboard" },
     { id: "adminManagers", label: "Managers", icon: "dealers" },
-    { id: "dealersOverview", label: "Dealers Overview", icon: "dealers" },
-    { id: "productOverview", label: "Product Overview", icon: "products" },
-    { id: "orderOverview", label: "Order Overview", icon: "orders" },
-    { id: "deliveryOverview", label: "Delivery Overview", icon: "delivery" },
-    { id: "financeOverview", label: "Finance Overview", icon: "finance" },
-    { id: "creditOverview", label: "Credit Overview", icon: "credits" },
+    { id: "dealersOverview", label: "Dealer Analytics", icon: "dealers" },
+    { id: "productOverview", label: "Product Performance", icon: "products" },
+    { id: "orderOverview", label: "Order Management", icon: "orders" },
+    { id: "deliveryOverview", label: "Delivery Monitoring", icon: "delivery" },
+    { id: "financeOverview", label: "Financial Overview", icon: "finance" },
+    { id: "creditOverview", label: "Credit Monitoring", icon: "credits" },
     ...adminCeoTransferTabs,
     { id: "adminChat", label: "Internal Team Chat", icon: "messages" },
     { id: "internalUpdates", label: "Internal Updates", icon: "internalUpdates" }

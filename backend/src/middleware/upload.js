@@ -42,8 +42,13 @@ const creditRewardUpload = multer({
   fileFilter: (req, file, cb) => cb(null, file.mimetype.startsWith("image/"))
 });
 
+const chatUpload = multer({
+  storage: storage("chat-attachments"),
+  limits: { fileSize: 20 * 1024 * 1024 }
+});
+
 function publicPath(folder, file) {
   return file ? `/uploads/${folder}/${file.filename}`.replace(/\\/g, "/") : null;
 }
 
-module.exports = { productImageUpload, invoiceUpload, creditRewardUpload, publicPath };
+module.exports = { productImageUpload, invoiceUpload, creditRewardUpload, chatUpload, publicPath };

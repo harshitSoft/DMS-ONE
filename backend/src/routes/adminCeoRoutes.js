@@ -20,9 +20,13 @@ router.patch("/dealers/:id/suspend", permit("ADMIN", "ADMIN_CEO"), ctrl.suspendD
 router.patch("/dealers/:id/reactivate", permit("ADMIN", "ADMIN_CEO"), ctrl.reactivateDealer);
 router.patch("/products/:id/disband", permit("ADMIN", "ADMIN_CEO"), ctrl.disbandProduct);
 router.patch("/products/:id/reactivate", permit("ADMIN", "ADMIN_CEO"), ctrl.reactivateProduct);
+const { chatUpload } = require("../middleware/upload");
+
 router.get("/chat/conversations", ctrl.chatConversations);
 router.get("/chat/:userId", ctrl.chatMessages);
-router.post("/chat/send", ctrl.sendChat);
+router.post("/chat/send", chatUpload.single("attachment"), ctrl.sendChat);
+router.put("/chat/:messageId", ctrl.editChat);
+router.delete("/chat/:messageId", ctrl.deleteChat);
 router.patch("/chat/:messageId/read", ctrl.readChat);
 
 module.exports = router;

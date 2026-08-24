@@ -1,7 +1,10 @@
 const { Op, fn, col } = require("sequelize");
 const asyncHandler = require("../utils/asyncHandler");
+const { hardDeleteUser } = require("../utils/userCleanup");
 const {
   AdminInternalMessage,
+  DealerInternalMessage,
+  SuperAdminChat,
   Company,
   CreditRedemption,
   CreditReward,
@@ -15,9 +18,14 @@ const {
   Product,
   ProductVariant,
   CompanyInventory,
-  User
+  User,
+  AdminPinnedMessage,
+  SuperAdminTarget,
+  SuperAdminPinnedMessage,
+  InternalNotification
 } = require("../models");
 const { hasAdminManagers } = require("../utils/managerAssignment");
+const { publicPath } = require("../middleware/upload");
 
 const adminManagerRoles = ["DEALER_MANAGER", "PRODUCT_DELIVERY_MANAGER", "FINANCE_MANAGER"];
 const orgRoles = ["ADMIN_CEO", "ADMIN", ...adminManagerRoles];
@@ -324,8 +332,9 @@ exports.updateManager = asyncHandler(async (req, res) => {
 exports.deleteManager = asyncHandler(async (req, res) => {
   const manager = await User.findOne({ where: { id: req.params.id, companyId: req.user.companyId, role: adminManagerRoles } });
   if (!manager) return res.status(404).json({ message: "Manager not found" });
-  await manager.update({ status: "inactive" });
-  res.json({ message: "Manager disabled" });
+  await hardDeleteUser(manager.id);
+  await manager.destroy();
+  res.json({ message: "Manager deleted" });
 });
 
 exports.suspendDealer = asyncHandler(async (req, res) => {
@@ -415,6 +424,14 @@ exports.chatConversations = asyncHandler(async (req, res) => {
 });
 
 exports.chatMessages = asyncHandler(async (req, res) => {
+  if (req.params.userId === "common") {
+    res.json(await AdminInternalMessage.findAll({
+      where: { companyId: req.user.companyId, receiverId: null },
+      include: [{ model: User, as: "sender", attributes: ["id", "name", "role"] }],
+      order: [["createdAt", "ASC"]]
+    }));
+    return;
+  }
   const otherId = Number(req.params.userId);
   const other = await User.findOne({ where: { id: otherId, companyId: req.user.companyId, role: orgRoles } });
   if (!other) return res.status(404).json({ message: "Team member not found" });
@@ -432,12 +449,73 @@ exports.chatMessages = asyncHandler(async (req, res) => {
 });
 
 exports.sendChat = asyncHandler(async (req, res) => {
-  const receiverId = Number(req.body.receiverId);
-  const other = await User.findOne({ where: { id: receiverId, companyId: req.user.companyId, role: orgRoles, status: "active" } });
-  if (!other) return res.status(404).json({ message: "Team member not found" });
-  if (!req.body.message) return res.status(400).json({ message: "Message is required" });
-  const message = await AdminInternalMessage.create({ companyId: req.user.companyId, senderId: req.user.id, receiverId, message: req.body.message });
+  if (!req.body.message && !req.file) return res.status(400).json({ message: "Message or attachment is required" });
+  let receiverId = null;
+  if (req.body.receiverId && req.body.receiverId !== "common") {
+    receiverId = Number(req.body.receiverId);
+    const other = await User.findOne({ where: { id: receiverId, companyId: req.user.companyId, role: orgRoles, status: "active" } });
+    if (!other) return res.status(404).json({ message: "Team member not found" });
+  }
+  
+  const payload = {
+    companyId: req.user.companyId,
+    senderId: req.user.id,
+    receiverId,
+    message: req.body.message || ""
+  };
+  
+  if (req.file) {
+    payload.attachmentUrl = publicPath("chat-attachments", req.file);
+    payload.attachmentName = req.file.originalname;
+  }
+  
+  const message = await AdminInternalMessage.create(payload);
+  
+  // Notification Logic
+  if (receiverId) {
+    await InternalNotification.create({
+      companyId: req.user.companyId,
+      userId: receiverId,
+      title: "New Personal Message",
+      message: `${req.user.name} sent you a private message.`,
+      type: "GENERAL",
+      priority: "MEDIUM",
+      metadata: { senderId: req.user.id, isCommon: false }
+    });
+  } else {
+    const allTeamMembers = await User.findAll({ where: { companyId: req.user.companyId, role: orgRoles, id: { [Op.ne]: req.user.id }, status: "active" } });
+    const notifications = allTeamMembers.map(u => ({
+      companyId: req.user.companyId,
+      userId: u.id,
+      title: "New Team Message",
+      message: `${req.user.name} sent a message to the Common Team Chat.`,
+      type: "GENERAL",
+      priority: "LOW",
+      metadata: { senderId: "common", isCommon: true }
+    }));
+    if (notifications.length > 0) {
+      await InternalNotification.bulkCreate(notifications);
+    }
+  }
+
   res.status(201).json(message);
+});
+
+exports.editChat = asyncHandler(async (req, res) => {
+  const message = await AdminInternalMessage.findOne({ where: { id: req.params.messageId, companyId: req.user.companyId, senderId: req.user.id } });
+  if (!message) return res.status(404).json({ message: "Message not found or you are not authorized to edit it" });
+  if (!req.body.message) return res.status(400).json({ message: "Message cannot be empty" });
+  
+  await message.update({ message: req.body.message, isEdited: true });
+  res.json(message);
+});
+
+exports.deleteChat = asyncHandler(async (req, res) => {
+  const message = await AdminInternalMessage.findOne({ where: { id: req.params.messageId, companyId: req.user.companyId, senderId: req.user.id } });
+  if (!message) return res.status(404).json({ message: "Message not found or you are not authorized to delete it" });
+  
+  await message.destroy();
+  res.json({ message: "Message deleted successfully" });
 });
 
 exports.readChat = asyncHandler(async (req, res) => {

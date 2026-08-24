@@ -1,9 +1,10 @@
-﻿  import { useEffect, useState } from "react";
-  import { AlertTriangle, CheckCircle2, Clock, Gift, IndianRupee, PackageCheck, Pencil, Star, Trash2, Truck, Users, X } from "lucide-react";
+  import { useEffect, useState } from "react";
+import { formatTitleCase } from "../utils/textFormatter";
+  import { AlertTriangle, CheckCircle2, Clock, Eye, EyeOff, Gift, IndianRupee, PackageCheck, Pencil, Star, Trash2, Truck, Users, X, Paperclip } from "lucide-react";
   import { Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, Legend, Pie, PieChart, PolarAngleAxis, PolarGrid, PolarRadiusAxis, Radar, RadarChart, RadialBar, RadialBarChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
   import Layout from "../components/Layout";
   import { api, fileUrl } from "../api/client";
-  import { Button, Card, DeliveryTimeline, Empty, FileUploadPreview, FormGrid, formatDate, formatMoney, Loading, PageHeader, PaymentBadge, Plus, Section, StatusBadge, TextField } from "../components/UI";
+  import { Button, Card, DeliveryTimeline, Empty, FileUploadPreview, FormGrid, formatDate, formatMoney, Loading, PageHeader, PaymentBadge, Plus, Section, Select, SearchableSelect, StatusBadge, TextField } from "../components/UI";
   import { useAuth } from "../state/AuthContext";
   import { consumeProfileTargetTab, roleTabs } from "../utils/profileNavigation";
   import { useNavigate, useParams } from "react-router-dom";
@@ -13,6 +14,44 @@
   import AdminCeoProductsOverview from "../components/AdminCeoProductsOverview";
   import { AdminCeoDeliveryOverview, AdminCeoFinanceOverview, AdminCeoOrdersOverview } from "../components/AdminCeoOperationsOverviews";
 
+  const INDIA_STATES_CITIES = {
+    "Andhra Pradesh": ["Visakhapatnam", "Vijayawada", "Guntur", "Nellore", "Kurnool", "Rajahmundry", "Tirupati"],
+    "Arunachal Pradesh": ["Itanagar", "Tawang", "Pasighat"],
+    "Assam": ["Guwahati", "Silchar", "Dibrugarh", "Jorhat"],
+    "Bihar": ["Patna", "Gaya", "Bhagalpur", "Muzaffarpur", "Purnia"],
+    "Chhattisgarh": ["Raipur", "Bhilai", "Bilaspur", "Korba", "Durg"],
+    "Goa": ["Panaji", "Margao", "Vasco da Gama", "Mapusa"],
+    "Gujarat": ["Ahmedabad", "Surat", "Vadodara", "Rajkot", "Bhavnagar", "Jamnagar"],
+    "Haryana": ["Gurugram", "Faridabad", "Panipat", "Ambala", "Rohtak", "Hisar", "Karnal"],
+    "Himachal Pradesh": ["Shimla", "Manali", "Dharamshala", "Solan", "Mandi"],
+    "Jharkhand": ["Ranchi", "Jamshedpur", "Dhanbad", "Bokaro", "Deoghar"],
+    "Karnataka": ["Bengaluru", "Mysuru", "Hubli", "Mangaluru", "Belagavi", "Davanagere"],
+    "Kerala": ["Thiruvananthapuram", "Kochi", "Kozhikode", "Kollam", "Thrissur"],
+    "Madhya Pradesh": ["Bhopal", "Indore", "Gwalior", "Jabalpur", "Ujjain", "Sagar"],
+    "Maharashtra": ["Mumbai", "Pune", "Nagpur", "Nashik", "Thane", "Aurangabad", "Solapur"],
+    "Manipur": ["Imphal", "Thoubal"],
+    "Meghalaya": ["Shillong", "Tura"],
+    "Mizoram": ["Aizawl", "Lunglei"],
+    "Nagaland": ["Kohima", "Dimapur"],
+    "Odisha": ["Bhubaneswar", "Cuttack", "Rourkela", "Berhampur", "Sambalpur"],
+    "Punjab": ["Ludhiana", "Amritsar", "Jalandhar", "Patiala", "Bathinda"],
+    "Rajasthan": ["Jaipur", "Jodhpur", "Udaipur", "Kota", "Bikaner", "Ajmer"],
+    "Sikkim": ["Gangtok", "Namchi"],
+    "Tamil Nadu": ["Chennai", "Coimbatore", "Madurai", "Tiruchirappalli", "Salem", "Tirunelveli"],
+    "Telangana": ["Hyderabad", "Warangal", "Nizamabad", "Karimnagar", "Ramagundam"],
+    "Tripura": ["Agartala", "Udaipur"],
+    "Uttar Pradesh": ["Lucknow", "Kanpur", "Noida", "Agra", "Varanasi", "Meerut", "Prayagraj", "Ghaziabad"],
+    "Uttarakhand": ["Dehradun", "Haridwar", "Roorkee", "Haldwani"],
+    "West Bengal": ["Kolkata", "Howrah", "Darjeeling", "Asansol", "Siliguri", "Durgapur"],
+    "Andaman and Nicobar Islands": ["Port Blair"],
+    "Chandigarh": ["Chandigarh"],
+    "Dadra and Nagar Haveli and Daman and Diu": ["Daman", "Diu", "Silvassa"],
+    "Delhi": ["New Delhi", "North Delhi", "South Delhi"],
+    "Jammu and Kashmir": ["Srinagar", "Jammu", "Anantnag"],
+    "Ladakh": ["Leh", "Kargil"],
+    "Lakshadweep": ["Kavaratti"],
+    "Puducherry": ["Pondicherry", "Auroville", "Karaikal"]
+  };
   const fullSku = (product, variant) => [product?.sku, variant?.skuSuffix].filter(Boolean).join("-") || product?.sku || "-";
   const productNameWithSku = (product, variant) => `${product?.productName || "Product"} (${fullSku(product, variant)})`;
   const rowNameWithSku = (row, nameKey = "productName", skuKey = "sku") => `${row?.[nameKey] || "Product"}${row?.[skuKey] ? ` (${row[skuKey]})` : ""}`;
@@ -50,7 +89,9 @@
     const [data, setData] = useState({});
     const [loading, setLoading] = useState(true);
     const [loadError, setLoadError] = useState("");
-    const [dealerForm, setDealerForm] = useState({ dealerName: "", ownerName: "", email: "", password: "dealer123", phone: "", area: "", city: "", state: "", pincode: "", address: "" });
+    const [dealerForm, setDealerForm] = useState({ dealerName: "", ownerName: "", email: "", password: "", confirmPassword: "", phone: "", state: "", city: "", pincode: "", address: "" });
+    const [showDealerPassword, setShowDealerPassword] = useState(false);
+    const [showDealerConfirmPassword, setShowDealerConfirmPassword] = useState(false);
     const [productForm, setProductForm] = useState({ productName: "", category: "", description: "", manufacturingDate: "", expiryDate: "", price: 0, quantity: 0, lowStockLimit: 10, creditCoins: 0, status: "active" });
     const [variantRows, setVariantRows] = useState([{ variantName: "Standard", colorName: "Default", stockQuantity: 0, priceOverride: "", skuSuffix: "", status: "active" }]);
     const [editingProduct, setEditingProduct] = useState(null);
@@ -72,6 +113,7 @@
     const [orderPage, setOrderPage] = useState(1);
     const [deliveryFilter, setDeliveryFilter] = useState("all");
     const [deliveryPage, setDeliveryPage] = useState(1);
+    const [chatTarget, setChatTarget] = useState(null);
 
     const load = async (force = false) => {
       setLoading(true);
@@ -83,16 +125,15 @@
         dealerSales: ["dealer-sales", "dealers", "products"], messages: ["messages/conversations"], policies: ["policies"], reports: ["reports"]
       };
       const endpoints = user?.role === "ADMIN_CEO" && activeTab === "dashboard" ? [] : (endpointByTab[activeTab] || []);
-      const includeUpdates = activeTab === "internalUpdates";
       const result = await Promise.allSettled([
         ...endpoints.map((e) => cachedGet(api, `/admin/${e}`, {}, { force })),
-        ...(includeUpdates ? [cachedGet(api, "/internal-updates", {}, { force })] : [])
+        cachedGet(api, "/internal-updates", {}, { force })
       ]);
       const payload = {};
       endpoints.forEach((e, i) => {
         payload[e.replace("/", "_")] = result[i].status === "fulfilled" ? result[i].value.data : [];
       });
-      if (includeUpdates) payload.internalUpdates = result.at(-1).status === "fulfilled" ? result.at(-1).value.data : { updates: [], unreadCount: 0 };
+      payload.internalUpdates = result.at(-1).status === "fulfilled" ? result.at(-1).value.data : { rows: [], unreadCount: 0 };
       setData((current) => ({ ...current, ...payload }));
       const failedCount = result.filter((entry) => entry.status === "rejected").length;
       if (failedCount) {
@@ -246,7 +287,7 @@
     ];
 
     return (
-      <Layout title="Company Admin" subtitle={`${data.company?.companyName || "Company"} control center`} tabs={currentTabs} activeTab={activeTab} onTab={setActiveTab}>
+      <Layout title="Company Admin" subtitle={`${data.company?.companyName || "Company"} control center`} tabs={currentTabs} activeTab={activeTab} onTab={setActiveTab} unreadUpdates={data.internalUpdates?.unreadCount || 0}>
         <PageHeader
           eyebrow={String(user?.role || "Organization").replaceAll("_", " ")}
           title={currentTabs.find((tab) => tab.id === activeTab)?.label || "Dashboard"}
@@ -255,7 +296,7 @@
         {loadError && <div className="mb-5 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm font-semibold text-amber-800 shadow-sm"><span>{loadError}</span><Button variant="ghost" onClick={load}>Retry</Button></div>}
         {activeTab === "dashboard" && (user?.role === "ADMIN_CEO" ? <AdminCeoReadOnlyOverview endpoint="/admin-ceo/dashboard" type="dashboard" /> : user?.role === "PRODUCT_DELIVERY_MANAGER" ? <ProductDeliveryManagerDashboard analytics={data.dashboard_analytics} products={data.products || []} orders={data.orders || []} dealerStock={data.stock_dealers || []} fallbackCards={dashboardCards} /> : user?.role === "FINANCE_MANAGER" ? <FinanceManagerDashboard analytics={data.dashboard_analytics} payments={data.finance_payments?.payments || []} stats={data.finance_payments?.stats || {}} fallbackCards={dashboardCards} /> : <AdminAnalytics analytics={data.dashboard_analytics} fallbackCards={dashboardCards} />)}
         {activeTab === "adminManagers" && <AdminManagers />}
-        {activeTab === "adminChat" && <AdminTeamChat />}
+        {activeTab === "adminChat" && <AdminTeamChat chatTarget={chatTarget} />}
         {activeTab === "dealersOverview" && <AdminCeoReadOnlyOverview endpoint="/admin-ceo/dealers-overview" type="dealers" />}
         {activeTab === "productOverview" && <AdminCeoReadOnlyOverview endpoint="/admin-ceo/product-overview" type="products" />}
         {activeTab === "orderOverview" && <AdminCeoReadOnlyOverview endpoint="/admin-ceo/order-overview" type="orders" />}
@@ -270,12 +311,27 @@
           <>
             <Section title="Create dealer">
               {dealerError && <div className="mb-4 rounded-md border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{dealerError}</div>}
-              <FormGrid onSubmit={(e) => { e.preventDefault(); create("/admin/dealers", dealerForm, () => setDealerForm({ ...dealerForm, dealerName: "", ownerName: "", email: "", pincode: "" })); }}>
-                {Object.keys(dealerForm).map((k) => <TextField key={k} label={k.replace(/([A-Z])/g, " $1")} value={dealerForm[k]} onChange={(e) => setDealerForm({ ...dealerForm, [k]: e.target.value })} required={["dealerName", "ownerName", "email", "password"].includes(k)} />)}
+              <FormGrid onSubmit={(e) => {
+                e.preventDefault();
+                if (dealerForm.password !== dealerForm.confirmPassword) return alert("Passwords do not match");
+                create("/admin/dealers", dealerForm, () => setDealerForm({ dealerName: "", ownerName: "", email: "", password: "", confirmPassword: "", phone: "", city: "", state: "", pincode: "", address: "" }));
+              }}>
+                <TextField label="Dealer Name" value={dealerForm.dealerName} onChange={(e) => setDealerForm({ ...dealerForm, dealerName: e.target.value })} required />
+                <TextField label="Owner Name" value={dealerForm.ownerName} onChange={(e) => setDealerForm({ ...dealerForm, ownerName: e.target.value })} required />
+                <TextField label="Email" type="email" value={dealerForm.email} onChange={(e) => setDealerForm({ ...dealerForm, email: e.target.value })} required />
+                <TextField label="Phone" type="tel" pattern="\d{10}" title="Phone must be exactly 10 digits" maxLength={10} minLength={10} value={dealerForm.phone} onChange={(e) => setDealerForm({ ...dealerForm, phone: e.target.value.replace(/\D/g, '') })} required />
+                <TextField label="Password" type={showDealerPassword ? "text" : "password"} value={dealerForm.password} onChange={(e) => setDealerForm({ ...dealerForm, password: e.target.value })} required suffix={<button type="button" onClick={() => setShowDealerPassword(!showDealerPassword)} className="text-slate-400 hover:text-slate-600 focus:outline-none">{showDealerPassword ? <EyeOff size={18} /> : <Eye size={18} />}</button>} />
+                <TextField label="Confirm Password" type={showDealerConfirmPassword ? "text" : "password"} value={dealerForm.confirmPassword} onChange={(e) => setDealerForm({ ...dealerForm, confirmPassword: e.target.value })} required suffix={<button type="button" onClick={() => setShowDealerConfirmPassword(!showDealerConfirmPassword)} className="text-slate-400 hover:text-slate-600 focus:outline-none">{showDealerConfirmPassword ? <EyeOff size={18} /> : <Eye size={18} />}</button>} />
+                <SearchableSelect label="State" options={Object.keys(INDIA_STATES_CITIES)} value={dealerForm.state} onChange={(val) => setDealerForm({ ...dealerForm, state: val, city: "" })} placeholder="Select State..." required />
+                <SearchableSelect label="City" options={INDIA_STATES_CITIES[dealerForm.state] || []} value={dealerForm.city} onChange={(val) => setDealerForm({ ...dealerForm, city: val })} placeholder="Select City..." required disabled={!dealerForm.state} />
+                <TextField label="Pincode" value={dealerForm.pincode} onChange={(e) => setDealerForm({ ...dealerForm, pincode: e.target.value })} required />
+                <div className="md:col-span-2">
+                  <TextField label="Address" value={dealerForm.address} onChange={(e) => setDealerForm({ ...dealerForm, address: e.target.value })} required />
+                </div>
                 <div className="md:col-span-2"><Button type="submit"><Plus size={16} /> Create Dealer</Button></div>
               </FormGrid>
             </Section>
-            <SimpleTable title="Area-wise dealer list" rows={data.dealers} cols={["dealerName", "ownerName", "email", "area", "city", "pincode", "status"]} />
+            <SimpleTable title="Dealer list" rows={data.dealers} cols={["dealerName", "ownerName", "email", "state", "city", "pincode", "status"]} />
           </>
         )}
         {activeTab === "products" && (
@@ -318,7 +374,7 @@
         {activeTab === "dealerSales" && <AdminDealerSales data={data["dealer-sales"]} dealers={data.dealers || []} products={data.products || []} />}
         {activeTab === "policies" && <Composer title="Policy & information" form={policyForm} setForm={setPolicyForm} submit={() => create("/admin/policies", policyForm, () => setPolicyForm({ ...policyForm, title: "", description: "" }))} rows={data.policies} cols={["title", "description", "visibleToDealers"]} />}
         {activeTab === "messages" && <AdminChat data={data.messages_conversations} form={messageForm} setForm={setMessageForm} sendMessage={sendMessage} />}
-        {activeTab === "internalUpdates" && <InternalUpdates data={data.internalUpdates} filter={internalFilter} setFilter={setInternalFilter} markRead={markUpdateRead} markAll={markAllUpdatesRead} />}
+        {activeTab === "internalUpdates" && <InternalUpdates data={data.internalUpdates} filter={internalFilter} setFilter={setInternalFilter} markRead={markUpdateRead} markAll={markAllUpdatesRead} openChat={(targetId) => { setChatTarget(targetId); selectTab("adminChat"); }} />}
         {activeTab === "reports" && <SimpleTable title="Dealer reports and updates" rows={data.reports} cols={["title", "type", "description", "dealerId", "createdAt"]} />}
       </Layout>
     );
@@ -821,8 +877,15 @@
   }
 
   function SimpleTable({ title, rows = [], cols, renderCell }) {
-    const columnLabel = (column) => column.replace(/([a-z0-9])([A-Z])/g, "$1 $2").replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
-    return <Section title={title}>{rows.length ? <div className="overflow-x-auto"><table className="w-full text-left text-sm"><thead className="bg-slate-50 text-slate-500"><tr>{cols.map((c) => <th className="p-3" key={c}>{columnLabel(c)}</th>)}</tr></thead><tbody>{rows.map((row, i) => <tr className={`border-t border-slate-100 ${i % 2 ? "bg-stone-50/70" : "bg-white"} hover:bg-slate-50`} key={row.id || i}>{cols.map((c) => <td className="p-3" key={c}>{renderCell ? renderCell(row, c) : String(row[c] ?? "")}</td>)}</tr>)}</tbody></table></div> : <Empty />}</Section>;
+    const columnLabel = (column) => {
+      let text = column.replace(/([a-z0-9])([A-Z])/g, "$1 $2").replaceAll("_", " ");
+      try {
+        return formatTitleCase(text);
+      } catch {
+        return text.replace(/\b\w/g, (letter) => letter.toUpperCase());
+      }
+    };
+    return <Section title={typeof title === 'string' ? formatTitleCase(title) : title}>{rows.length ? <div className="overflow-x-auto"><table className="w-full text-left text-sm"><thead className="bg-slate-50 text-slate-500"><tr>{cols.map((c) => <th className="p-3" key={c}>{columnLabel(c)}</th>)}</tr></thead><tbody>{rows.map((row, i) => <tr className={`border-t border-slate-100 ${i % 2 ? "bg-stone-50/70" : "bg-white"} hover:bg-slate-50`} key={row.id || i}>{cols.map((c) => <td className="p-3" key={c}>{renderCell ? renderCell(row, c) : String(row[c] ?? "")}</td>)}</tr>)}</tbody></table></div> : <Empty />}</Section>;
   }
 
   function AdminDealerSales({ data = {} }) {
@@ -846,14 +909,22 @@
     );
   }
 
-  function InternalUpdates({ data = {}, filter, setFilter, markRead, markAll }) {
+  function InternalUpdates({ data = {}, filter, setFilter, markRead, markAll, openChat }) {
     const rows = data.rows || [];
     const filterMap = { unread: (n) => !n.isRead, read: (n) => n.isRead, low_stock: (n) => n.type === "LOW_STOCK" };
     const visible = rows.filter(filterMap[filter] || (() => true));
+    
+    const handleNotificationClick = (n) => {
+      if (n.title === "New Team Message" || n.title === "New Personal Message") {
+        if (!n.isRead) markRead(n.id);
+        if (openChat) openChat(n.metadata?.senderId || "common");
+      }
+    };
+    
     return (
       <Section title="Internal Updates" actions={<Button variant="ghost" onClick={markAll}>Mark all as read</Button>}>
         <div className="mb-4 flex flex-wrap gap-2">{["all", "unread", "read", "low_stock"].map((f) => <button key={f} onClick={() => setFilter(f)} className={`rounded-full px-3 py-1 text-sm font-semibold ${filter === f ? "bg-brand text-white" : "bg-slate-100 text-slate-600"}`}>{f.replaceAll("_", " ")}</button>)}</div>
-        {visible.length ? <div className="space-y-3">{visible.map((n) => <div key={n.id} className={`rounded-md border p-4 ${n.type === "LOW_STOCK" ? "border-yellow-200 bg-yellow-50" : n.type === "PAYMENT" ? "border-blue-200 bg-blue-50" : "border-slate-200 bg-white"}`}><div className="flex flex-wrap items-start justify-between gap-3"><div><div className="flex flex-wrap gap-2"><NotificationBadge value={n.isRead ? "Read" : "Unread"} />{["LOW_STOCK", "PAYMENT", "SALES_UPDATE"].includes(n.type) && <NotificationBadge value={n.type} />}</div><p className="mt-2 font-semibold text-slate-900">{n.title}</p><p className="mt-1 text-sm leading-6 text-slate-600">{n.message}</p><NotificationMeta notification={n} /><p className="mt-2 text-xs text-slate-500">{new Date(n.createdAt).toLocaleString()}</p></div>{!n.isRead && <Button variant="ghost" onClick={() => markRead(n.id)}>Mark read</Button>}</div></div>)}</div> : <Empty text="No internal updates found" />}
+        {visible.length ? <div className="space-y-3">{visible.map((n) => <div key={n.id} onClick={() => handleNotificationClick(n)} className={`rounded-md border p-4 cursor-pointer transition hover:-translate-y-0.5 hover:shadow-md ${n.type === "LOW_STOCK" ? "border-yellow-200 bg-yellow-50" : n.type === "PAYMENT" ? "border-blue-200 bg-blue-50" : "border-slate-200 bg-white"}`}><div className="flex flex-wrap items-start justify-between gap-3"><div><div className="flex flex-wrap gap-2"><NotificationBadge value={n.isRead ? "Read" : "Unread"} />{["LOW_STOCK", "PAYMENT", "SALES_UPDATE"].includes(n.type) && <NotificationBadge value={n.type} />}</div><p className="mt-2 font-semibold text-slate-900">{n.title}</p><p className="mt-1 text-sm leading-6 text-slate-600">{n.message}</p><NotificationMeta notification={n} /><p className="mt-2 text-xs text-slate-500">{new Date(n.createdAt).toLocaleString()}</p></div>{!n.isRead && <Button variant="ghost" onClick={(e) => { e.stopPropagation(); markRead(n.id); }}>Mark read</Button>}</div></div>)}</div> : <Empty text="No internal updates found" />}
       </Section>
     );
   }
@@ -1070,14 +1141,20 @@
 
   function AdminManagers() {
     const [rows, setRows] = useState([]);
-    const [form, setForm] = useState({ name: "", email: "", phone: "", password: "", role: "DEALER_MANAGER" });
+    const [showPassword, setShowPassword] = useState(false);
+    const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+    const [form, setForm] = useState({ name: "", email: "", phone: "", password: "", confirmPassword: "", role: "DEALER_MANAGER" });
     const [selectedManager, setSelectedManager] = useState(null);
+    const [editingManager, setEditingManager] = useState(null);
     const load = (force = false) => cachedGet(api, "/admin-ceo/managers", {}, { force }).then(({ data }) => setRows(data));
     useEffect(() => { load(); }, []);
     const createManager = async (e) => {
       e.preventDefault();
+      if (form.password !== form.confirmPassword) {
+        return window.alert("Passwords do not match");
+      }
       await api.post("/admin-ceo/managers", form);
-      setForm({ name: "", email: "", phone: "", password: "", role: "DEALER_MANAGER" });
+      setForm({ name: "", email: "", phone: "", password: "", confirmPassword: "", role: "DEALER_MANAGER" });
       load(true);
     };
     const setStatus = async (id, status) => {
@@ -1085,13 +1162,20 @@
       load(true);
     };
     const editManager = async (manager) => {
-      const name = window.prompt("Manager name", manager.name);
-      if (!name) return;
-      await api.put(`/admin-ceo/managers/${manager.id}`, { name });
-      load(true);
+      setEditingManager({ ...manager });
+    };
+    const saveEdit = async (e) => {
+      e.preventDefault();
+      try {
+        await api.put(`/admin-ceo/managers/${editingManager.id}`, { name: editingManager.name, phone: editingManager.phone, role: editingManager.role });
+        setEditingManager(null);
+        load(true);
+      } catch (err) {
+        window.alert(err.response?.data?.message || "Failed to update manager");
+      }
     };
     const removeManager = async (manager) => {
-      if (!window.confirm(`Remove ${manager.name}? Login will be disabled and history kept.`)) return;
+      if (!window.confirm(`Permanently delete ${manager.name} from the database? This action cannot be undone.`)) return;
       await api.delete(`/admin-ceo/managers/${manager.id}`);
       load(true);
     };
@@ -1100,9 +1184,10 @@
         <Section title="Create Admin Manager">
           <FormGrid onSubmit={createManager}>
             <TextField label="Name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required />
-            <TextField label="Email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} required />
-            <TextField label="Phone" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
-            <TextField label="Password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} required />
+            <TextField label="Email" type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} required />
+            <TextField label="Phone" type="tel" pattern="\d{10}" title="Phone must be exactly 10 digits" maxLength={10} minLength={10} value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value.replace(/\D/g, '') })} required />
+            <TextField label="Password" type={showPassword ? "text" : "password"} value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} required suffix={<button type="button" onClick={() => setShowPassword(!showPassword)} className="text-slate-400 hover:text-slate-600 focus:outline-none">{showPassword ? <EyeOff size={18} /> : <Eye size={18} />}</button>} />
+            <TextField label="Confirm Password" type={showConfirmPassword ? "text" : "password"} value={form.confirmPassword} onChange={(e) => setForm({ ...form, confirmPassword: e.target.value })} required suffix={<button type="button" onClick={() => setShowConfirmPassword(!showConfirmPassword)} className="text-slate-400 hover:text-slate-600 focus:outline-none">{showConfirmPassword ? <EyeOff size={18} /> : <Eye size={18} />}</button>} />
             <label className="text-sm font-semibold text-slate-600">Role<select className="mt-1 w-full rounded-md border border-slate-200 p-2.5" value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })}><option value="DEALER_MANAGER">Dealer Manager</option><option value="PRODUCT_DELIVERY_MANAGER">Product Delivery Manager</option><option value="FINANCE_MANAGER">Finance Manager</option></select></label>
             <div className="md:col-span-2"><Button type="submit"><Plus size={16} /> Create Manager</Button></div>
           </FormGrid>
@@ -1113,35 +1198,136 @@
           </div>
         </Section>
         {selectedManager && <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/50 p-4" onMouseDown={() => setSelectedManager(null)}><div role="dialog" aria-modal="true" aria-labelledby="manager-details-title" className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl" onMouseDown={(e) => e.stopPropagation()}><div className="flex items-start justify-between gap-4"><div><h2 id="manager-details-title" className="text-xl font-bold text-slate-950">{selectedManager.name}</h2><p className="mt-1 text-sm text-slate-500">Complete Manager Details</p></div><button type="button" aria-label="Close manager details" className="rounded-md p-2 text-slate-500 hover:bg-slate-100" onClick={() => setSelectedManager(null)}><X size={18} /></button></div><dl className="mt-6 grid gap-4 sm:grid-cols-2">{[["Email", selectedManager.email], ["Phone", selectedManager.phone || "-"], ["Role", String(selectedManager.role || "-").replaceAll("_", " ")], ["Status", selectedManager.status], ["Created", formatDate(selectedManager.createdAt)]].map(([label, value]) => <div key={label} className="rounded-lg bg-slate-50 p-3"><dt className="text-xs font-bold uppercase tracking-wide text-slate-500">{label}</dt><dd className="mt-1 break-words text-sm font-semibold capitalize text-slate-900">{value}</dd></div>)}</dl></div></div>}
+        {editingManager && <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/50 p-4" onMouseDown={() => setEditingManager(null)}><div role="dialog" aria-modal="true" aria-labelledby="manager-edit-title" className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl" onMouseDown={(e) => e.stopPropagation()}><div className="flex items-start justify-between gap-4"><div><h2 id="manager-edit-title" className="text-xl font-bold text-slate-950">Edit {editingManager.name}</h2><p className="mt-1 text-sm text-slate-500">Update Manager Details</p></div><button type="button" aria-label="Close edit manager" className="rounded-md p-2 text-slate-500 hover:bg-slate-100" onClick={() => setEditingManager(null)}><X size={18} /></button></div><form onSubmit={saveEdit} className="mt-6 space-y-4"><TextField label="Name" value={editingManager.name} onChange={(e) => setEditingManager({ ...editingManager, name: e.target.value })} required /><TextField label="Phone" type="tel" pattern="\d{10}" title="Phone must be exactly 10 digits" maxLength={10} minLength={10} value={editingManager.phone || ""} onChange={(e) => setEditingManager({ ...editingManager, phone: e.target.value.replace(/\D/g, '') })} required /><label className="text-sm font-semibold text-slate-600">Role<select className="mt-1 w-full rounded-md border border-slate-200 p-2.5" value={editingManager.role} onChange={(e) => setEditingManager({ ...editingManager, role: e.target.value })}><option value="DEALER_MANAGER">Dealer Manager</option><option value="PRODUCT_DELIVERY_MANAGER">Product Delivery Manager</option><option value="FINANCE_MANAGER">Finance Manager</option></select></label><div className="mt-6 flex justify-end gap-3"><Button type="button" variant="secondary" className="bg-slate-100 text-slate-700 hover:bg-slate-200" onClick={() => setEditingManager(null)}>Cancel</Button><Button type="submit">Save Changes</Button></div></form></div></div>}
       </div>
     );
   }
 
-  function AdminTeamChat() {
+  function AdminTeamChat({ chatTarget }) {
     const { user } = useAuth();
     const [users, setUsers] = useState([]);
-    const [selected, setSelected] = useState(null);
+    const commonChat = { id: "common", name: "Common Team Chat", role: "all_members" };
+    const [selected, setSelected] = useState(commonChat);
     const [messages, setMessages] = useState([]);
     const [text, setText] = useState("");
-    useEffect(() => { api.get("/admin-ceo/chat/conversations").then(({ data }) => setUsers(data)); }, []);
-    useEffect(() => { if (selected) api.get(`/admin-ceo/chat/${selected.id}`).then(({ data }) => setMessages(data)); }, [selected]);
+    const [attachment, setAttachment] = useState(null);
+    const [editingMsg, setEditingMsg] = useState(null);
+    
+    const loadMessages = () => { if (selected) api.get(`/admin-ceo/chat/${selected.id}`).then(({ data }) => setMessages(data)); };
+    
+    useEffect(() => { 
+      api.get("/admin-ceo/chat/conversations").then(({ data }) => {
+        const userList = [commonChat, ...data];
+        setUsers(userList);
+        if (chatTarget) {
+          const target = userList.find(u => String(u.id) === String(chatTarget));
+          if (target) setSelected(target);
+        }
+      }); 
+    }, []);
+    
+    useEffect(() => {
+      if (chatTarget && users.length) {
+        const target = users.find(u => String(u.id) === String(chatTarget));
+        if (target) setSelected(target);
+      }
+    }, [chatTarget]);
+
+    useEffect(() => { loadMessages(); }, [selected]);
+
     const send = async (e) => {
       e.preventDefault();
-      if (!selected || !text.trim()) return;
-      await api.post("/admin-ceo/chat/send", { receiverId: selected.id, message: text.trim() });
+      if (!selected || (!text.trim() && !attachment)) return;
+      
+      if (editingMsg) {
+        await api.put(`/admin-ceo/chat/${editingMsg.id}`, { message: text.trim() });
+        setEditingMsg(null);
+      } else {
+        const formData = new FormData();
+        formData.append("receiverId", selected.id);
+        if (text.trim()) formData.append("message", text.trim());
+        if (attachment) formData.append("attachment", attachment);
+        await api.post("/admin-ceo/chat/send", formData, { headers: { "Content-Type": "multipart/form-data" } });
+      }
       setText("");
-      const { data } = await api.get(`/admin-ceo/chat/${selected.id}`);
-      setMessages(data);
+      setAttachment(null);
+      loadMessages();
     };
+
+    const removeMsg = async (id) => {
+      if (!window.confirm("Delete this message?")) return;
+      await api.delete(`/admin-ceo/chat/${id}`);
+      loadMessages();
+    };
+    
+    const isImage = (url) => url && /\.(jpg|jpeg|png|gif|webp)$/i.test(url);
+
     return (
       <div className="grid gap-4 lg:grid-cols-[320px_1fr]">
         <Section title="Team members">
           <div className="space-y-2">
-            {users.map((u) => <button key={u.id} onClick={() => setSelected(u)} className={`w-full rounded-xl border px-3 py-3 text-left text-sm transition ${selected?.id === u.id ? "border-indigo-200 bg-indigo-50 shadow-sm" : "border-slate-200 bg-white hover:border-indigo-100 hover:bg-slate-50"}`}><span className="flex items-center gap-3"><span className="grid h-10 w-10 place-items-center rounded-full bg-gradient-to-br from-indigo-500 to-blue-600 text-sm font-bold text-white">{(u.name || "?").slice(0, 1).toUpperCase()}</span><span className="min-w-0"><span className="block truncate font-semibold text-slate-900">{u.name}</span><span className="block truncate text-xs text-slate-500">{u.role.replaceAll("_", " ")}</span></span></span></button>)}
+            {users.map((u) => <button key={u.id} onClick={() => { setSelected(u); setEditingMsg(null); setText(""); setAttachment(null); }} className={`w-full rounded-xl border px-3 py-3 text-left text-sm transition ${selected?.id === u.id ? "border-indigo-200 bg-indigo-50 shadow-sm" : "border-slate-200 bg-white hover:border-indigo-100 hover:bg-slate-50"}`}><span className="flex items-center gap-3"><span className="grid h-10 w-10 place-items-center rounded-full bg-gradient-to-br from-indigo-500 to-blue-600 text-sm font-bold text-white">{(u.name || "?").slice(0, 1).toUpperCase()}</span><span className="min-w-0"><span className="block truncate font-semibold text-slate-900">{u.name}</span><span className="block truncate text-xs text-slate-500">{u.role.replaceAll("_", " ")}</span></span></span></button>)}
           </div>
         </Section>
-        <Section title={selected ? `Internal team chat - ${selected.name}` : "Internal team chat"}>
-          {selected ? <><div className="mb-4 h-[28rem] space-y-3 overflow-y-auto rounded-2xl border border-slate-200 bg-gradient-to-b from-slate-50 to-white p-4">{messages.length ? messages.map((m) => { const mine = Number(m.senderId) === Number(user?.id); return <div key={m.id} className={`flex ${mine ? "justify-end" : "justify-start"}`}><div className={`max-w-[78%] rounded-2xl px-4 py-3 text-sm shadow-sm ${mine ? "bg-indigo-600 text-white" : "border border-slate-200 bg-white text-slate-800"}`}><p className={`mb-1 text-xs font-bold ${mine ? "text-indigo-100" : "text-slate-500"}`}>{mine ? "You" : m.sender?.name || "Team member"}</p><p className="leading-6">{m.message}</p><p className={`mt-2 text-[11px] ${mine ? "text-indigo-100" : "text-slate-400"}`}>{new Date(m.createdAt).toLocaleString()}</p></div></div>; }) : <Empty text="No messages yet. Start the conversation." />}</div><form onSubmit={send} className="flex gap-2 rounded-2xl border border-slate-200 bg-white p-2 shadow-sm"><input className="flex-1 rounded-xl border-0 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-indigo-100" value={text} onChange={(e) => setText(e.target.value)} placeholder={`Message ${selected.name}`} required /><Button>Send</Button></form></> : <Empty text="Select a team member to open chat" />}
+        <Section title={selected ? (selected.id === "common" ? "Common Team Chat" : `Internal team chat - ${selected.name}`) : "Internal team chat"}>
+          {selected ? (
+            <>
+              <div className="mb-4 h-[28rem] space-y-3 overflow-y-auto rounded-2xl border border-slate-200 bg-gradient-to-b from-slate-50 to-white p-4">
+                {messages.length ? messages.map((m) => {
+                  const mine = Number(m.senderId) === Number(user?.id);
+                  return (
+                    <div key={m.id} className={`flex group ${mine ? "justify-end" : "justify-start"}`}>
+                      <div className={`relative max-w-[78%] rounded-2xl px-4 py-3 text-sm shadow-sm ${mine ? "bg-indigo-600 text-white" : "border border-slate-200 bg-white text-slate-800"}`}>
+                        {mine && (
+                          <div className="absolute -left-16 top-2 hidden group-hover:flex gap-1 bg-white p-1 rounded-md shadow-sm border border-slate-100">
+                            <button onClick={() => { setEditingMsg(m); setText(m.message); setAttachment(null); }} className="text-slate-400 hover:text-indigo-600 p-1"><Pencil size={14} /></button>
+                            <button onClick={() => removeMsg(m.id)} className="text-slate-400 hover:text-rose-600 p-1"><Trash2 size={14} /></button>
+                          </div>
+                        )}
+                        <p className={`mb-1 text-xs font-bold ${mine ? "text-indigo-100" : "text-slate-500"}`}>{mine ? "You" : m.sender?.name || "Team member"}</p>
+                        <p className="leading-6 whitespace-pre-wrap">{m.message}</p>
+                        {m.attachmentUrl && (
+                          <div className="mt-2">
+                            {isImage(m.attachmentUrl) ? (
+                              <a href={fileUrl(m.attachmentUrl)} target="_blank" rel="noreferrer"><img src={fileUrl(m.attachmentUrl)} alt={m.attachmentName} className="max-w-full rounded-lg shadow-sm border border-slate-200/50 max-h-48 object-contain" /></a>
+                            ) : (
+                              <a href={fileUrl(m.attachmentUrl)} target="_blank" rel="noreferrer" className={`inline-flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-medium underline ${mine ? "bg-indigo-700 text-indigo-50" : "bg-slate-50 text-slate-700"}`}><Paperclip size={14} /> {m.attachmentName || "Attachment"}</a>
+                            )}
+                          </div>
+                        )}
+                        <div className={`mt-2 flex justify-between items-center text-[11px] ${mine ? "text-indigo-100" : "text-slate-400"}`}>
+                          <span>{new Date(m.createdAt).toLocaleString()}</span>
+                          {m.isEdited && <span className="italic ml-2">(edited)</span>}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                }) : <Empty text="No messages yet. Start the conversation." />}
+              </div>
+              <form onSubmit={send} className="flex flex-col gap-2 rounded-2xl border border-slate-200 bg-white p-2 shadow-sm">
+                {attachment && (
+                  <div className="flex items-center gap-2 px-3 py-1 bg-slate-50 rounded-lg text-xs font-medium text-slate-700">
+                    <Paperclip size={14} /> {attachment.name}
+                    <button type="button" onClick={() => setAttachment(null)} className="ml-auto text-slate-400 hover:text-rose-500"><X size={14} /></button>
+                  </div>
+                )}
+                {editingMsg && (
+                  <div className="flex items-center gap-2 px-3 py-1 bg-amber-50 rounded-lg text-xs font-medium text-amber-700 border border-amber-100">
+                    <span>Editing message</span>
+                    <button type="button" onClick={() => { setEditingMsg(null); setText(""); }} className="ml-auto text-amber-500 hover:text-amber-700"><X size={14} /></button>
+                  </div>
+                )}
+                <div className="flex gap-2">
+                  <label className="flex h-10 w-10 cursor-pointer items-center justify-center rounded-xl bg-slate-100 text-slate-500 hover:bg-slate-200 hover:text-slate-700 transition">
+                    <Paperclip size={18} />
+                    <input type="file" className="hidden" onChange={(e) => setAttachment(e.target.files[0])} disabled={!!editingMsg} />
+                  </label>
+                  <input className="flex-1 rounded-xl border-0 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-indigo-100 bg-slate-50" value={text} onChange={(e) => setText(e.target.value)} placeholder={editingMsg ? "Edit message..." : `Message ${selected.id === "common" ? "everyone" : selected.name}`} required={!attachment} />
+                  <Button type="submit">{editingMsg ? "Save" : "Send"}</Button>
+                </div>
+              </form>
+            </>
+          ) : <Empty text="Select a team member to open chat" />}
         </Section>
       </div>
     );
