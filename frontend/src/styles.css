@@ -6,6 +6,8 @@
 
 * {
   box-sizing: border-box;
+  -ms-overflow-style: none;
+  scrollbar-width: none;
 }
 
 body {
@@ -94,16 +96,5 @@ button:disabled {
 }
 
 ::-webkit-scrollbar {
-  height: 10px;
-  width: 10px;
-}
-
-::-webkit-scrollbar-thumb {
-  background: #CBD5E1;
-  border-radius: 999px;
-  border: 2px solid #F8FAFC;
-}
-
-::-webkit-scrollbar-track {
-  background: #F8FAFC;
+  display: none;
 }
