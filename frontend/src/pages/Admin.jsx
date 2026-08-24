@@ -1271,3 +1271,7 @@
   function Composer({ title, form, setForm, submit, rows, cols }) {
     return <><Section title={title}><FormGrid onSubmit={(e) => { e.preventDefault(); submit(); }}>{Object.keys(form).map((k) => <TextField key={k} label={k} value={form[k]} onChange={(e) => setForm({ ...form, [k]: e.target.value })} />)}<div className="md:col-span-2"><Button type="submit">Save</Button></div></FormGrid></Section><SimpleTable title={`${title} list`} rows={rows} cols={cols} /></>;
   }
+
+
+
+  
