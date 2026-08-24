@@ -33,6 +33,20 @@ function normalizeStatus(status) {
   return "active";
 }
 
+function organizationValidation(body, { requireFields = false } = {}) {
+  const errors = [];
+  const now = new Date();
+  const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+  ["phone", "adminPhone"].forEach((field) => {
+    if (body[field] != null && body[field] !== "" && !/^\d{7,10}$/.test(String(body[field]).trim())) errors.push(`${field === "phone" ? "Organization" : "Admin CEO"} phone must contain 7 to 10 digits`);
+  });
+  if (body.startDate && body.startDate < today) errors.push("Start date cannot be in the past");
+  if (body.endDate && body.endDate < today) errors.push("End date cannot be in the past");
+  if (body.startDate && body.endDate && body.endDate < body.startDate) errors.push("End date must be on or after the start date");
+  if (requireFields && !body.startDate) errors.push("Start date is required");
+  return errors[0];
+}
+
 async function adminFor(companyId, options = {}) {
   return User.findOne({
     where: { companyId, role: { [Op.in]: adminRoles } },
@@ -105,6 +119,8 @@ exports.createOrganization = asyncHandler(async (req, res) => {
   if (missing.length) return res.status(400).json({ message: `Required fields: ${missing.join(", ")}` });
   if (body.confirmPassword != null && body.password !== body.confirmPassword) return res.status(400).json({ message: "Passwords do not match" });
   if (String(body.password).length < 6) return res.status(400).json({ message: "Password must be at least 6 characters" });
+  const validationError = organizationValidation(body, { requireFields: true });
+  if (validationError) return res.status(400).json({ message: validationError });
   const email = String(body.adminEmail).trim().toLowerCase();
   if (await User.findOne({ where: { email } })) return res.status(409).json({ message: "A user with this email already exists" });
 
@@ -146,6 +162,13 @@ exports.getOrganization = asyncHandler(async (req, res) => {
 exports.updateOrganization = asyncHandler(async (req, res) => {
   const company = await Company.findByPk(req.params.id);
   if (!company || company.status === "deleted") return res.status(404).json({ message: "Organization not found" });
+  let validationError = organizationValidation(req.body);
+  if (!validationError && (Object.prototype.hasOwnProperty.call(req.body, "startDate") || Object.prototype.hasOwnProperty.call(req.body, "endDate"))) {
+    const nextStart = req.body.startDate || company.startDate;
+    const nextEnd = req.body.endDate || company.endDate;
+    if (nextStart && nextEnd && nextEnd < nextStart) validationError = "End date must be on or after the start date";
+  }
+  if (validationError) return res.status(400).json({ message: validationError });
   const updates = pick(req.body, editableCompanyFields);
   if (updates.status) updates.status = normalizeStatus(updates.status);
   const admin = await adminFor(company.id);

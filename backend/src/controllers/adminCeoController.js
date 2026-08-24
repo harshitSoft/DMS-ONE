@@ -27,25 +27,63 @@ function publicManager(user) {
 }
 
 async function companySummary(companyId) {
-  const [company, dealerCount, products, orders, payments, wallets, rewards, redemptions] = await Promise.all([
+  const [company, dealers, products, orders, payments, wallets, rewards, redemptions] = await Promise.all([
     Company.findByPk(companyId),
-    Dealer.count({ where: { companyId } }),
-    Product.count({ where: { companyId } }),
-    Order.findAll({ where: { companyId }, attributes: ["status", "totalAmount", "deliveryDate", "createdAt"] }),
-    Payment.findAll({ where: { companyId }, attributes: ["amount", "paymentStatus", "paymentMethod", "createdAt", "paidAt"] }),
+    Dealer.findAll({ where: { companyId }, attributes: ["id", "dealerName", "createdAt"] }),
+    Product.findAll({ where: { companyId }, attributes: ["id", "createdAt"] }),
+    Order.findAll({ where: { companyId }, attributes: ["dealerId", "status", "totalAmount", "deliveryDate", "createdAt"] }),
+    Payment.findAll({ where: { companyId }, attributes: ["dealerId", "amount", "paymentStatus", "paymentMethod", "createdAt", "paidAt"] }),
     DealerCreditWallet.findAll({ where: { companyId } }),
     CreditReward.findAll({ where: { companyId } }),
     CreditRedemption.findAll({ where: { companyId } })
   ]);
   const sum = (rows, key) => rows.reduce((total, row) => total + Number(row[key] || 0), 0);
+  const monthKey = (date) => new Date(date).toISOString().slice(0, 7);
+  const monthLabel = (key) => new Date(`${key}-01T00:00:00Z`).toLocaleString("en", { month: "short" });
+  const months = Array.from({ length: 12 }, (_, index) => {
+    const date = new Date();
+    date.setUTCDate(1);
+    date.setUTCMonth(date.getUTCMonth() - (11 - index));
+    return date.toISOString().slice(0, 7);
+  });
+  const revenueTrend = months.map((key) => ({
+    month: monthLabel(key),
+    key,
+    paid: sum(payments.filter((row) => row.paymentStatus === "paid" && monthKey(row.paidAt || row.createdAt) === key), "amount"),
+    unpaid: sum(payments.filter((row) => row.paymentStatus === "pending" && monthKey(row.createdAt) === key), "amount")
+  }));
+  const dealerMap = Object.fromEntries(dealers.map((dealer) => [dealer.id, dealer.dealerName]));
+  const dealerPerformanceMap = orders.reduce((acc, order) => {
+    acc[order.dealerId] ||= { name: dealerMap[order.dealerId] || "Dealer", orders: 0, revenue: 0 };
+    acc[order.dealerId].orders += 1;
+    acc[order.dealerId].revenue += Number(order.totalAmount || 0);
+    return acc;
+  }, {});
+  const rewardsTrend = months.slice(-6).map((key) => ({
+    month: monthLabel(key),
+    rewards: redemptions.filter((row) => monthKey(row.requestedAt || row.createdAt) === key).reduce((total, row) => total + Number(row.coinsUsed || 0), 0)
+  }));
+  const weeklySpark = (rows, value = () => 1, dateKey = "createdAt") => Array.from({ length: 7 }, (_, index) => {
+    const date = new Date(Date.now() - (6 - index) * 86400000).toISOString().slice(0, 10);
+    return { day: date, value: rows.filter((row) => new Date(row[dateKey] || row.createdAt).toISOString().slice(0, 10) === date).reduce((total, row) => total + value(row), 0) };
+  });
+  const growth = (rows, value = () => 1, dateKey = "createdAt") => {
+    const now = Date.now();
+    const current = rows.filter((row) => now - new Date(row[dateKey] || row.createdAt).getTime() < 30 * 86400000).reduce((total, row) => total + value(row), 0);
+    const previous = rows.filter((row) => { const age = now - new Date(row[dateKey] || row.createdAt).getTime(); return age >= 30 * 86400000 && age < 60 * 86400000; }).reduce((total, row) => total + value(row), 0);
+    return previous ? Number((((current - previous) / previous) * 100).toFixed(1)) : current ? 100 : 0;
+  };
+  const paidPayments = payments.filter((payment) => payment.paymentStatus === "paid");
+  const paidCredit = wallets.reduce((total, wallet) => total + Number(wallet.totalRedeemed || 0), 0);
+  const outstandingCredit = wallets.reduce((total, wallet) => total + Number(wallet.balance || 0), 0);
   return {
     company,
     totals: {
-      dealers: dealerCount,
-      products,
+      dealers: dealers.length,
+      products: products.length,
       orders: orders.length,
-      revenue: sum(payments.filter((payment) => payment.paymentStatus === "paid"), "amount"),
-      paidAmount: sum(payments.filter((payment) => payment.paymentStatus === "paid"), "amount"),
+      revenue: sum(paidPayments, "amount"),
+      paidAmount: sum(paidPayments, "amount"),
       unpaidAmount: sum(payments.filter((payment) => payment.paymentStatus === "pending"), "amount"),
       creditOutstanding: wallets.reduce((total, wallet) => total + Number(wallet.balance || 0), 0),
       rewards: rewards.length,
@@ -54,7 +92,21 @@ async function companySummary(companyId) {
     orderStatus: orders.reduce((acc, order) => {
       acc[order.status] = (acc[order.status] || 0) + 1;
       return acc;
-    }, {})
+    }, {}),
+    analytics: {
+      trends: {
+        dealers: growth(dealers), products: growth(products), orders: growth(orders),
+        revenue: growth(paidPayments, (row) => Number(row.amount || 0), "paidAt")
+      },
+      sparklines: {
+        dealers: weeklySpark(dealers), products: weeklySpark(products), orders: weeklySpark(orders),
+        revenue: weeklySpark(paidPayments, (row) => Number(row.amount || 0), "paidAt")
+      },
+      revenueTrend,
+      dealerPerformance: Object.values(dealerPerformanceMap).sort((a, b) => b.orders - a.orders).slice(0, 5),
+      creditData: { paid: paidCredit, outstanding: outstandingCredit },
+      rewardsTrend
+    }
   };
 }
 

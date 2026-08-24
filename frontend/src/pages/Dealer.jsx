@@ -7,6 +7,8 @@ import { Button, Card, ChartCard, ConfirmModal, DeliveryTimeline, Empty, FormGri
 import { consumeProfileTargetTab, roleTabs } from "../utils/profileNavigation";
 import { useAuth } from "../state/AuthContext";
 import ImageWithFallback from "../components/ImageWithFallback";
+import { useNavigate, useParams } from "react-router-dom";
+import { cachedGet } from "../utils/sessionApiCache";
 
 const fullSku = (product, variant) => [product?.sku, variant?.skuSuffix].filter(Boolean).join("-") || product?.sku || "-";
 const rowVariant = (row) => row?.ProductVariant || row?.variant || row;
@@ -72,9 +74,13 @@ class DealerErrorBoundary extends Component {
 
 function DealerDashboard() {
   const { user } = useAuth();
+  const navigate = useNavigate();
+  const { section } = useParams();
   const visibleTabs = roleTabs[user?.role] || tabs;
   const visibleTabIds = visibleTabs.map((tab) => tab.id);
-  const [activeTab, setActiveTab] = useState(() => consumeProfileTargetTab("dashboard", visibleTabs));
+  const profileTab = consumeProfileTargetTab("", visibleTabs);
+  const activeTab = visibleTabIds.includes(section) ? section : (profileTab || "dashboard");
+  const setActiveTab = (tab) => navigate(`/dealer/${tab}`);
   const [data, setData] = useState({});
   const [loadError, setLoadError] = useState("");
   const [loading, setLoading] = useState(true);
@@ -93,7 +99,7 @@ function DealerDashboard() {
   const [salesError, setSalesError] = useState("");
   const [dealerManagersExist, setDealerManagersExist] = useState(false);
 
-  const load = async () => {
+  const load = async (force = false) => {
     setLoading(true);
     setLoadError("");
     try {
@@ -112,20 +118,18 @@ function DealerDashboard() {
         credit_transactions: "credit/transactions"
       };
       const arrayKeys = new Set(["stock", "orders", "delivery", "inventory", "sales", "finance", "policies", "messages_conversation", "credit_redemptions", "credit_transactions"]);
-      const needed = ["dashboard"];
-      if (visibleTabIds.includes("stock")) needed.push("stock");
-      if (visibleTabIds.includes("orders")) needed.push("orders");
-      if (visibleTabIds.includes("delivery")) needed.push("delivery");
-      if (visibleTabIds.includes("inventory") || visibleTabIds.includes("sales")) needed.push("inventory");
-      if (visibleTabIds.includes("sales")) needed.push("sales");
-      if (visibleTabIds.includes("finance")) needed.push("finance");
-      if (visibleTabIds.includes("policies")) needed.push("policies");
-      if (visibleTabIds.includes("messages")) needed.push("messages_conversation");
-      if (visibleTabIds.includes("creditStore")) needed.push("credit_store", "credit_redemptions", "credit_transactions");
+      const keysByTab = {
+        dashboard: ["dashboard"], stock: ["stock"], orders: ["orders"], delivery: ["delivery"], inventory: ["inventory"],
+        sales: ["inventory", "sales"], finance: ["finance"], policies: ["policies"], messages: ["messages_conversation"],
+        creditStore: ["credit_store", "credit_redemptions", "credit_transactions"]
+      };
+      const needed = keysByTab[activeTab] || [];
+      const includeUpdates = activeTab === "internalUpdates";
+      const needsManagerStatus = ["stock", "orders", "sales", "finance", "creditStore"].includes(activeTab) && ["DEALER", "DEALER_CEO"].includes(user?.role);
       const result = await Promise.allSettled([
-        ...needed.map((key) => api.get(`/dealer/${endpointMap[key]}`)),
-        api.get("/internal-updates"),
-        api.get("/dealer-ceo/manager-exists").catch(() => ({ data: { exists: false } }))
+        ...needed.map((key) => cachedGet(api, `/dealer/${endpointMap[key]}`, {}, { force })),
+        ...(includeUpdates ? [cachedGet(api, "/internal-updates", {}, { force })] : []),
+        ...(needsManagerStatus ? [cachedGet(api, "/dealer-ceo/manager-exists", {}, { force }).catch(() => ({ data: { exists: false } }))] : [])
       ]);
       const payload = {};
       const failed = [];
@@ -138,10 +142,12 @@ function DealerDashboard() {
           failed.push(key.replaceAll("_", " "));
         }
       });
-      const updatesResult = result[needed.length];
-      payload.internalUpdates = updatesResult.status === "fulfilled" && updatesResult.value.data ? updatesResult.value.data : { rows: [], unreadCount: 0 };
-      setDealerManagersExist(Boolean(result[needed.length + 1]?.value?.data?.exists));
-      setData(payload);
+      if (includeUpdates) {
+        const updatesResult = result[needed.length];
+        payload.internalUpdates = updatesResult.status === "fulfilled" && updatesResult.value.data ? updatesResult.value.data : { rows: [], unreadCount: 0 };
+      }
+      if (needsManagerStatus) setDealerManagersExist(Boolean(result[needed.length + (includeUpdates ? 1 : 0)]?.value?.data?.exists));
+      setData((current) => ({ ...current, ...payload }));
       if (failed.length) setLoadError(`Some dealer sections could not load: ${failed.join(", ")}.`);
     } catch (error) {
       setData({ dashboard: {}, stock: [], orders: [], delivery: [], inventory: [], sales: [], finance: [], policies: [], messages_conversation: [], credit_store: {}, credit_redemptions: [], credit_transactions: [], internalUpdates: { rows: [], unreadCount: 0 } });
@@ -151,9 +157,15 @@ function DealerDashboard() {
     }
   };
 
-  useEffect(() => { load(); }, []);
   useEffect(() => {
-    if (!visibleTabIds.includes(activeTab)) setActiveTab("dashboard");
+    if (!visibleTabIds.includes(section)) {
+      navigate(`/dealer/${activeTab}`, { replace: true });
+      return;
+    }
+    load();
+  }, [activeTab, user?.role]);
+  useEffect(() => {
+    if (!visibleTabIds.includes(activeTab)) navigate("/dealer/dashboard", { replace: true });
   }, [activeTab, visibleTabIds.join("|")]);
 
   const placeOrder = async () => {
@@ -176,7 +188,7 @@ function DealerDashboard() {
       setOrderItems({});
       setStockSelections({});
       setOrderWarning("");
-      await load();
+      await load(true);
       setActiveTab("orders");
     } catch (error) {
       const detail = error.response?.data;
@@ -189,21 +201,21 @@ function DealerDashboard() {
     await api.post("/dealer/messages/stock-request", stockRequest);
     setStockRequest(null);
     alert("Stock request sent to admin");
-    load();
+    load(true);
   };
 
   const pay = async (paymentId, paymentMethod) => {
     if (paymentMethod === "online") alert("Dummy online payment approved. A fake transaction id will be generated.");
     if (paymentMethod === "cash" && !confirm("Confirm cash payment done?")) return;
     await api.post(`/dealer/finance/pay/${paymentId}`, { paymentMethod });
-    load();
+    load(true);
   };
 
   const sendReply = async (e) => {
     e.preventDefault();
     await api.post("/dealer/messages/reply", { message: reply });
     setReply("");
-    load();
+    load(true);
   };
 
   const sendReport = async (e) => {
@@ -216,7 +228,7 @@ function DealerDashboard() {
   const updateLowStockLimit = async (id, lowStockLimit) => {
     if (dealerManagersExist && ["DEALER", "DEALER_CEO"].includes(user?.role)) return alert("Managed by assigned manager");
     await api.patch(`/dealer/inventory/${id}/low-stock-limit`, { lowStockLimit: Number(lowStockLimit) });
-    load();
+    load(true);
   };
 
   const recordSale = async (e) => {
@@ -235,7 +247,7 @@ function DealerDashboard() {
       setSaleForm({ saleDate: today, productId: "", inventoryId: "", quantitySold: "", remarks: "" });
       alert("Sale recorded");
       setSalesError("");
-      await load();
+      await load(true);
     } catch (error) {
       const message = error.response?.data?.availableStock !== undefined ? `You cannot sell more than available inventory stock. Available stock: ${error.response.data.availableStock}` : error.response?.data?.message || "Unable to record sale";
       setSalesError(message);
@@ -245,12 +257,12 @@ function DealerDashboard() {
 
   const markUpdateRead = async (id) => {
     await api.patch(`/internal-updates/${id}/read`);
-    load();
+    load(true);
   };
 
   const markAllUpdatesRead = async () => {
     await api.patch("/internal-updates/read-all");
-    load();
+    load(true);
   };
 
   if (loading) return <Layout title="Dealer" subtitle="Dealer self-service workspace" tabs={visibleTabs} activeTab={activeTab} onTab={setActiveTab}><Loading /></Layout>;
@@ -487,8 +499,8 @@ function DealerManagers() {
   const [confirmAction, setConfirmAction] = useState(null);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
-  const load = async () => {
-    const { data } = await api.get("/dealer-ceo/managers");
+  const load = async (force = false) => {
+    const { data } = await cachedGet(api, "/dealer-ceo/managers", {}, { force });
     setRows(data);
   };
   useEffect(() => { load(); }, []);
@@ -518,7 +530,7 @@ function DealerManagers() {
       setMessage("Manager created successfully");
       setError("");
       setOpenCreate(false);
-      await load();
+      await load(true);
     } catch (err) {
       setError(err.response?.data?.message || "Unable to create manager");
       setMessage("");
@@ -530,7 +542,7 @@ function DealerManagers() {
     const name = window.prompt("Manager name", manager.name);
     if (!name) return;
     await api.put(`/dealer-ceo/managers/${manager.id}`, { name });
-    load();
+    load(true);
   };
   const toggle = async (manager) => {
     const status = manager.status === "active" ? "inactive" : "active";
@@ -541,7 +553,7 @@ function DealerManagers() {
       danger: status !== "active",
       run: async () => {
         await api.patch(`/dealer-ceo/managers/${manager.id}/status`, { status });
-        await load();
+        await load(true);
       }
     });
   };
@@ -553,7 +565,7 @@ function DealerManagers() {
       danger: true,
       run: async () => {
         await api.delete(`/dealer-ceo/managers/${manager.id}`);
-        await load();
+        await load(true);
       }
     });
   };

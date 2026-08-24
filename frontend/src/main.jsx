@@ -47,8 +47,8 @@ ReactDOM.createRoot(document.getElementById("root")).render(
             <Route path="/super-admin-finance/*" element={<Navigate to="/login" replace />} />
             <Route path="/admin" element={<Navigate to="/admin/dashboard" replace />} />
             <Route path="/admin/:section" element={<ProtectedRoute role={["ADMIN", "ADMIN_CEO", "DEALER_MANAGER", "PRODUCT_DELIVERY_MANAGER", "FINANCE_MANAGER"]}><Admin /></ProtectedRoute>} />
-            <Route path="/dealer" element={<ProtectedRoute role={dealerRoles}><Dealer /></ProtectedRoute>} />
-            <Route path="/dealer/dashboard" element={<ProtectedRoute role={dealerRoles}><Dealer /></ProtectedRoute>} />
+            <Route path="/dealer" element={<Navigate to="/dealer/dashboard" replace />} />
+            <Route path="/dealer/:section" element={<ProtectedRoute role={dealerRoles}><Dealer /></ProtectedRoute>} />
             <Route path="/dealer-ceo/dashboard" element={<ProtectedRoute role={["DEALER", "DEALER_CEO"]}><Dealer /></ProtectedRoute>} />
             <Route path="/dealer-stock-delivery/dashboard" element={<ProtectedRoute role={["DEALER_STOCK_INVENTORY_MANAGER", "DEALER_STOCK_DELIVERY_MANAGER"]}><Dealer /></ProtectedRoute>} />
             <Route path="/dealer-sales-finance/dashboard" element={<ProtectedRoute role="DEALER_SALES_FINANCE_MANAGER"><Dealer /></ProtectedRoute>} />
