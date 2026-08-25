@@ -14,12 +14,11 @@ const { hasAdminManagers } = require("../utils/managerAssignment");
 const { licenseSystemEnabled } = require("../utils/featureFlags");
 
 const readRules = [
-  { pattern: /^\/(?:dashboard|company|policies)(?:\/|$)/, roles: ADMIN_READ_ROLES },
-  { pattern: /^\/(?:dealers|dealer-sales|dealer-performance|license-status|license-requests|reports)(?:\/|$)/, roles: ADMIN_DEALER_ROLES },
+  { pattern: /^\/(?:dashboard|company|policies|dealers)(?:\/|$)/, roles: ADMIN_READ_ROLES },
+  { pattern: /^\/(?:dealer-sales|dealer-performance|license-status|license-requests|reports)(?:\/|$)/, roles: ADMIN_DEALER_ROLES },
   { pattern: /^\/(?:products|inventory|stock|orders|delivery|dealer-wise-stock|stock-transfer-requests)(?:\/|$)/, roles: ADMIN_PRODUCT_DELIVERY_ROLES },
-  { pattern: /^\/(?:finance|payments|invoices|dealer-wise-payment-list|credit\/summary|credit\/dealer-wallets)(?:\/|$)/, roles: ADMIN_FINANCE_ROLES },
-  { pattern: /^\/messages(?:\/|$)/, roles: ADMIN_READ_ROLES },
-  { pattern: /^\/credit(?:\/|$)/, roles: ADMIN_OWNER_ROLES }
+  { pattern: /^\/(?:finance|payments|invoices|dealer-wise-payment-list|credit)(?:\/|$)/, roles: ADMIN_FINANCE_ROLES },
+  { pattern: /^\/messages(?:\/|$)/, roles: ADMIN_READ_ROLES }
 ];
 
 function adminSectionGuard(req, res, next) {
@@ -30,7 +29,7 @@ function adminSectionGuard(req, res, next) {
   // Managers may perform work only inside their assigned operational section.
   if (hasAnyRole(req.user, ADMIN_DEALER_ROLES) && req.user.role === "DEALER_MANAGER" && /^\/(?:dealers|license-requests)(?:\/|$)/.test(req.path)) return next();
   if (hasAnyRole(req.user, ADMIN_PRODUCT_DELIVERY_ROLES) && req.user.role === "PRODUCT_DELIVERY_MANAGER" && /^\/(?:products|inventory|orders|delivery|stock-transfer-requests)(?:\/|$)/.test(req.path)) return next();
-  if (hasAnyRole(req.user, ADMIN_FINANCE_ROLES) && req.user.role === "FINANCE_MANAGER" && /^\/(?:finance|payments|invoices)(?:\/|$)/.test(req.path)) return next();
+  if (hasAnyRole(req.user, ADMIN_FINANCE_ROLES) && req.user.role === "FINANCE_MANAGER" && /^\/(?:finance|payments|invoices|credit)(?:\/|$)/.test(req.path)) return next();
   return res.status(403).json({ message: "Access denied" });
 }
 

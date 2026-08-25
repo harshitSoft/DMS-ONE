@@ -1,6 +1,6 @@
   import { useEffect, useState } from "react";
 import { formatTitleCase } from "../utils/textFormatter";
-  import { AlertTriangle, CheckCircle2, Clock, Eye, EyeOff, Gift, IndianRupee, PackageCheck, Pencil, Star, Trash2, Truck, Users, X, Paperclip } from "lucide-react";
+  import { AlertTriangle, CheckCircle2, Clock, Eye, EyeOff, Gift, IndianRupee, PackageCheck, Pencil, Star, Trash2, Truck, Users, X, Paperclip, Clock3, Banknote, CreditCard, AlertCircle } from "lucide-react";
   import { Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, Legend, Pie, PieChart, PolarAngleAxis, PolarGrid, PolarRadiusAxis, Radar, RadarChart, RadialBar, RadialBarChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
   import Layout from "../components/Layout";
   import { api, fileUrl } from "../api/client";
@@ -12,7 +12,7 @@ import { formatTitleCase } from "../utils/textFormatter";
   import AdminCeoAnalyticsDashboard from "../components/AdminCeoAnalyticsDashboard";
   import AdminCeoDealersOverview from "../components/AdminCeoDealersOverview";
   import AdminCeoProductsOverview from "../components/AdminCeoProductsOverview";
-  import { AdminCeoDeliveryOverview, AdminCeoFinanceOverview, AdminCeoOrdersOverview, AdminCeoCreditOverview } from "../components/AdminCeoOperationsOverviews";
+  import { AdminCeoDeliveryOverview, AdminCeoFinanceOverview, AdminCeoOrdersOverview, AdminCeoCreditOverview, MetricGrid } from "../components/AdminCeoOperationsOverviews";
 
   const INDIA_STATES_CITIES = {
     "Andhra Pradesh": ["Visakhapatnam", "Vijayawada", "Guntur", "Nellore", "Kurnool", "Rajahmundry", "Tirupati"],
@@ -356,14 +356,7 @@ import { formatTitleCase } from "../utils/textFormatter";
         {activeTab === "delivery" && <DeliveryManagement rows={(data.orders || []).filter((o) => ["approved", "packing", "shipping", "out_for_delivery", "delivered"].includes(o.status))} updateOrder={updateOrder} filter={deliveryFilter} setFilter={setDeliveryFilter} page={deliveryPage} setPage={setDeliveryPage} />}
         {activeTab === "finance" && (
           <>
-            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-              <FinanceMetric label="Pending Payments" value={data.finance_payments?.stats?.pendingPayments || 0} tone="pending" />
-              <FinanceMetric label="Paid Payments" value={data.finance_payments?.stats?.paidPayments || 0} tone="paid" />
-              <FinanceMetric label="Cash Payments" value={data.finance_payments?.stats?.cashPayments || 0} tone="cash" />
-              <FinanceMetric label="Online Payments" value={data.finance_payments?.stats?.onlinePayments || 0} tone="online" />
-              <Card label="Total Pending" value={formatMoney(data.finance_payments?.stats?.totalPendingAmount || 0)} />
-              <Card label="Total Paid" value={formatMoney(data.finance_payments?.stats?.totalPaidAmount || 0)} />
-            </div>
+            <MetricGrid items={[[Clock3, "Pending Payments", data.finance_payments?.stats?.pendingPayments || 0, "#F59E0B"], [CheckCircle2, "Paid Payments", data.finance_payments?.stats?.paidPayments || 0, "#10B981"], [Banknote, "Cash Payments", data.finance_payments?.stats?.cashPayments || 0, "#8B5CF6"], [CreditCard, "Online Payments", data.finance_payments?.stats?.onlinePayments || 0, "#4F46E5"], [AlertCircle, "Total Pending", formatMoney(data.finance_payments?.stats?.totalPendingAmount || 0), "#EF4444"], [IndianRupee, "Total Paid", formatMoney(data.finance_payments?.stats?.totalPaidAmount || 0), "#10B981"]]} cols="xl:grid-cols-3" />
             <Section title="Approved orders waiting for payment request">
               {data["finance_approved-orders"]?.length ? <div className="space-y-3">{data["finance_approved-orders"].map((o) => <div key={o.id} className="rounded-md border border-slate-200 p-4"><div className="flex flex-wrap justify-between gap-3"><div><p className="font-semibold">{o.orderNumber} · {formatMoney(o.totalAmount)}</p><p className="text-sm text-slate-500">{o.Dealer?.dealerName} · approved {o.approvedAt ? new Date(o.approvedAt).toLocaleString() : ""}</p></div><div className="flex flex-wrap items-center gap-2"><input type="file" className="max-w-56 text-sm" onChange={(e) => setInvoiceFiles({ ...invoiceFiles, [o.id]: e.target.files?.[0] || null })} /><Button onClick={() => sendPaymentRequest(o.id)}>Send Payment Request</Button></div></div></div>)}</div> : <Empty text="No approved orders waiting for payment request" />}
             </Section>
