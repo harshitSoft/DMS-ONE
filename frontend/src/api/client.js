@@ -26,6 +26,7 @@ api.interceptors.response.use(
     if (error.response?.status === 401) {
       localStorage.removeItem("dms_token");
       localStorage.removeItem("dms_user");
+      window.dispatchEvent(new Event("dms_unauthorized"));
     }
     return Promise.reject(error);
   }

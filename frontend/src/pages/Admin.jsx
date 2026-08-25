@@ -12,7 +12,7 @@ import { formatTitleCase } from "../utils/textFormatter";
   import AdminCeoAnalyticsDashboard from "../components/AdminCeoAnalyticsDashboard";
   import AdminCeoDealersOverview from "../components/AdminCeoDealersOverview";
   import AdminCeoProductsOverview from "../components/AdminCeoProductsOverview";
-  import { AdminCeoDeliveryOverview, AdminCeoFinanceOverview, AdminCeoOrdersOverview } from "../components/AdminCeoOperationsOverviews";
+  import { AdminCeoDeliveryOverview, AdminCeoFinanceOverview, AdminCeoOrdersOverview, AdminCeoCreditOverview } from "../components/AdminCeoOperationsOverviews";
 
   const INDIA_STATES_CITIES = {
     "Andhra Pradesh": ["Visakhapatnam", "Vijayawada", "Guntur", "Nellore", "Kurnool", "Rajahmundry", "Tirupati"],
@@ -374,7 +374,7 @@ import { formatTitleCase } from "../utils/textFormatter";
         {activeTab === "dealerSales" && <AdminDealerSales data={data["dealer-sales"]} dealers={data.dealers || []} products={data.products || []} />}
         {activeTab === "policies" && <Composer title="Policy & information" form={policyForm} setForm={setPolicyForm} submit={() => create("/admin/policies", policyForm, () => setPolicyForm({ ...policyForm, title: "", description: "" }))} rows={data.policies} cols={["title", "description", "visibleToDealers"]} />}
         {activeTab === "messages" && <AdminChat data={data.messages_conversations} form={messageForm} setForm={setMessageForm} sendMessage={sendMessage} />}
-        {activeTab === "internalUpdates" && <InternalUpdates data={data.internalUpdates} filter={internalFilter} setFilter={setInternalFilter} markRead={markUpdateRead} markAll={markAllUpdatesRead} openChat={(targetId) => { setChatTarget(targetId); selectTab("adminChat"); }} />}
+        {activeTab === "internalUpdates" && <InternalUpdates data={data.internalUpdates} filter={internalFilter} setFilter={setInternalFilter} markRead={markUpdateRead} markAll={markAllUpdatesRead} openChat={(targetId) => { setChatTarget(targetId); setActiveTab("adminChat"); }} />}
         {activeTab === "reports" && <SimpleTable title="Dealer reports and updates" rows={data.reports} cols={["title", "type", "description", "dealerId", "createdAt"]} />}
       </Layout>
     );
@@ -1105,7 +1105,7 @@ import { formatTitleCase } from "../utils/textFormatter";
     const statValue = (key, value) => moneyKeys.some((item) => key.toLowerCase().includes(item.toLowerCase())) ? formatMoney(value) : value;
     return (
       <div className="space-y-6">
-        {!['dashboard', 'dealers', 'products', 'orders', 'delivery', 'finance'].includes(type) && statRows.length > 0 && (
+        {!['dashboard', 'dealers', 'products', 'orders', 'delivery', 'finance', 'credit'].includes(type) && statRows.length > 0 && (
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
             {statRows.map(([key, value]) => <Card key={key} label={key.replace(/([A-Z])/g, " $1")} value={statValue(key, value)} />)}
           </div>
@@ -1116,13 +1116,7 @@ import { formatTitleCase } from "../utils/textFormatter";
         {type === "orders" && <AdminCeoOrdersOverview payload={payload} />}
         {type === "delivery" && <AdminCeoDeliveryOverview payload={payload} />}
         {type === "finance" && <AdminCeoFinanceOverview payload={payload} />}
-        {type === "credit" && (
-          <>
-            <SimpleTable title="Dealer Credit Balances" rows={(payload.wallets || []).map((w) => ({ dealer: w.Dealer?.dealerName, balance: w.balance, totalEarned: w.totalEarned, totalRedeemed: w.totalRedeemed }))} cols={["dealer", "balance", "totalEarned", "totalRedeemed"]} />
-            <SimpleTable title="Recent Redemptions" rows={(payload.redemptions || []).map((r) => ({ dealer: r.Dealer?.dealerName, reward: r.reward?.title, coinsUsed: r.coinsUsed, status: r.status, requestedAt: r.requestedAt }))} cols={["dealer", "reward", "coinsUsed", "status", "requestedAt"]} />
-            <SimpleTable title="Credit Gift Uploads" rows={payload.rewards || []} cols={["title", "requiredCoins", "quantity", "status", "createdAt"]} />
-          </>
-        )}
+        {type === "credit" && <AdminCeoCreditOverview payload={payload} />}
       </div>
     );
   }

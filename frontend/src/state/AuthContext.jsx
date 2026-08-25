@@ -17,10 +17,18 @@ export function AuthProvider({ children }) {
   const [authError, setAuthError] = useState("");
 
   useEffect(() => {
+    const handleUnauthorized = () => {
+      localStorage.removeItem("dms_token");
+      localStorage.removeItem("dms_user");
+      setUser(null);
+      setAuthError("Session expired. Please login again.");
+    };
+    window.addEventListener("dms_unauthorized", handleUnauthorized);
+
     const token = localStorage.getItem("dms_token");
     if (!token) {
       setLoading(false);
-      return;
+      return () => window.removeEventListener("dms_unauthorized", handleUnauthorized);
     }
 
     let active = true;
@@ -42,7 +50,10 @@ export function AuthProvider({ children }) {
         if (active) setLoading(false);
       });
 
-    return () => { active = false; };
+    return () => { 
+      active = false; 
+      window.removeEventListener("dms_unauthorized", handleUnauthorized);
+    };
   }, []);
 
   const login = async (email, password) => {
